@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Phone Trainer - Mac Webcam</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+
+<style>
+body { 
+  background:#111; 
+  color:white; 
+  font-family:Arial; 
+  text-align:center;
+}
+video { 
+  width:320px; 
+  border:2px solid white; 
+}
+button { 
+  padding:8px 12px; 
+  margin:5px; 
+  font-size:14px;
+}
+</style>
+</head>
+<body>
+
+<h2>Mac Webcam Phone Trainer</h2>
+
+<video id="webcam" autoplay playsinline></video>
+<br><br>
+
+<input id="className" placeholder="Enter phone name">
+<button onclick="addClass()">Add Phone</button>
+
+<div id="classButtons"></div>
+
+<br>
+<button onclick="trainModel()">Train Model</button>
+<button onclick="startPrediction()">Start Prediction</button>
+
+<h3 id="status">Status: Loading...</h3>
+<h3 id="prediction"></h3>
+
+<script>
+let mobilenetModel;
+let classifier;
+let classNames = [];
+let trainingData = [];
+let trainingLabels = [];
+let predicting = false;
+
+// -------------------------
+// Setup Webcam
+// -------------------------
+  async function setupWebcam() {
+  const video = document.getElementById("webcam");
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: "user" },
+    audio: false
+  });
+  video.srcObject = stream;
+
+  return new Promise(resolve => {
+    video.onloadedmetadata = () => resolve();
+  });
+}
+
+// -------------------------
+// Load MobileNet
+// -------------------------
+async function loadBaseModel() {
+  mobilenetModel = await mobilenet.load({version:2, alpha:1.0});
+  document.getElementById("status").innerText = "Status: Ready";
+}
+
+// -------------------------
+// Add New Phone Class
+// -------------------------
+function addClass() {
+  const name = document.getElementById("className").value;
+  if (!name) return;
+
+  classNames.push(name);
+  const index = classNames.length - 1;
+
+  const btn = document.createElement("button");
+  btn.innerText = "Capture " + name;
+  btn.onclick = () => captureImage(index);
+
+  document.getElementById("classButtons").appendChild(btn);
+  document.getElementById("className").value = "";
+}
+
+// -------------------------
+// Capture Image
+// -------------------------
+  async function captureImage(classIndex) {
+  const video = document.getElementById("webcam");
+
+  const img = tf.browser.fromPixels(video)
+    .resizeNearestNeighbor([224,224])
+    .toFloat()
+    .div(255)
+    .expandDims();
+
+  const activation = mobilenetModel.infer(img, true);
+
+  trainingData.push(activation);
+  trainingLabels.push(classIndex);
+
+  document.getElementById("status").innerText =
+    `Captured ${classNames[classIndex]} (${trainingLabels.length} samples total)`;
+}
+
+// -------------------------
+// Train Classifier
+// -------------------------
+async function trainModel() {
+
+  if(trainingData.length === 0) {
+    alert("Capture some images first!");
+    return;
+  }
+
+  const xs = tf.concat(trainingData);
+  const ys = tf.oneHot(
+    tf.tensor1d(trainingLabels, "int32"),
+    classNames.length
+  );
+
+  classifier = tf.sequential();
+  classifier.add(tf.layers.dense({
+    inputShape: xs.shape.slice(1),
+    units: 100,
+    activation: "relu"
+  }));
+  classifier.add(tf.layers.dense({
+    units: classNames.length,
+    activation: "softmax"
+  }));
+
+  classifier.compile({
+    optimizer: tf.train.adam(0.0001),
+    loss: "categoricalCrossentropy",
+    metrics: ["accuracy"]
+  });
+
+  document.getElementById("status").innerText = "Training...";
+  
+  await classifier.fit(xs, ys, {
+    epochs: 20,
+    callbacks: {
+      onEpochEnd: (epoch, logs) => {
+        document.getElementById("status").innerText =
+          `Epoch ${epoch+1} - Loss: ${logs.loss.toFixed(4)}`;
+      }
+    }
+  });
+
+  document.getElementById("status").innerText = "Training Complete!";
+}
+
+// -------------------------
+// Live Prediction
+// -------------------------
+async function startPrediction() {
+  predicting = true;
+
+  while (predicting) {
+    const video = document.getElementById("webcam");
+
+    const img = tf.browser.fromPixels(video)
+      .resizeNearestNeighbor([224,224])
+      .toFloat()
+      .div(255)
+      .expandDims();
+
+    const activation = mobilenetModel.infer(img, true);
+    const prediction = classifier.predict(activation);
+    const index = prediction.argMax(1).dataSync()[0];
+
+    document.getElementById("prediction").innerText =
+      "Prediction: " + classNames[index];
+
+    await tf.nextFrame();
+  }
+}
+
+// -------------------------
+// Initialize
+// -------------------------
+async function main() {
+  await setupWebcam();
+  await loadBaseModel();
+}
+
+main();
+</script>
+
+</body>
+</html>
+
