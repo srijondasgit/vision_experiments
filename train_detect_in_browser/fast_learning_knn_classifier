@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Fast Face & Hand KNN</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier"></script>
+<style>
+body{margin:0;background:#111;color:#0f0;font-family:monospace;}
+#panel{position:fixed;top:15px;right:15px;width:300px;background:rgba(0,0,0,0.9);padding:12px;border-radius:10px;}
+button{width:100%;margin:4px 0;padding:6px;background:#0f0;border:none;cursor:pointer;}
+video{position:fixed;bottom:10px;right:10px;border:2px solid #0f0;border-radius:6px;}
+</style>
+</head>
+<body>
+
+<div id="panel">
+  <div id="status">Loading...</div>
+  <button onclick="addExample(0)">Add My Face</button>
+  <button onclick="addExample(1)">Add My Hand</button>
+  <button onclick="addExample(2)">Add Background</button>
+</div>
+
+<video id="cam" width="220" height="160" autoplay playsinline></video>
+
+<script>
+let mobilenetModel, webcam, classifier;
+const status = document.getElementById("status");
+
+// initialize models
+async function init(){
+  status.innerHTML="Loading MobileNet...";
+  mobilenetModel = await mobilenet.load({version:2, alpha:0.75});
+  classifier = knnClassifier.create();
+
+  const video = document.getElementById("cam");
+  const stream = await navigator.mediaDevices.getUserMedia({video:true});
+  video.srcObject = stream;
+  await new Promise(r=>video.onloadedmetadata=r);
+  webcam = await tf.data.webcam(video);
+  status.innerHTML="Ready! Add samples.";
+}
+
+// add example to KNN
+async function addExample(label){
+  const img = await webcam.capture();
+  const activation = mobilenetModel.infer(tf.image.resizeBilinear(img,[224,224]),'conv_preds');
+  classifier.addExample(activation, label);
+  img.dispose();
+  status.innerHTML=`Samples: ${classifier.getClassExampleCount()[label]||0} for label ${label}`;
+  predictLoop(); // start prediction loop immediately
+}
+
+// continuously predict
+let predicting=false;
+async function predictLoop(){
+  if(predicting) return;
+  predicting=true;
+  const labels=["My Face","My Hand","Background"];
+  while(true){
+    if(classifier.getNumClasses() > 0){
+      const img = await webcam.capture();
+      const activation = mobilenetModel.infer(tf.image.resizeBilinear(img,[224,224]),'conv_preds');
+      const result = await classifier.predictClass(activation);
+      status.innerHTML=`Prediction:<br><b>${labels[result.label]}</b>`;
+      img.dispose(); activation.dispose();
+    }
+    await tf.nextFrame();
+  }
+}
+
+init();
+</script>
+</body>
+</html>
