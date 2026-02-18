@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>MobileNet Popup (1s Predictions)</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+
+<style>
+body { margin:0; background:#111; }
+
+#popup {
+  position: fixed;
+  top: 15px;
+  right: 15px;
+  width: 260px;
+  background: rgba(0,0,0,0.85);
+  color: #00ff88;
+  font-family: monospace;
+  font-size: 13px;
+  padding: 12px;
+  border-radius: 10px;
+  box-shadow: 0 0 15px rgba(0,255,136,0.4);
+  z-index: 9999;
+}
+
+video {
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  border: 2px solid #00ff88;
+  border-radius: 6px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="popup">Initializing...</div>
+<video id="cam" width="220" height="160" autoplay playsinline></video>
+
+<script>
+const popup = document.getElementById("popup");
+
+function setText(html) {
+  popup.innerHTML = html;
+}
+
+async function start() {
+
+  setText("🔍 Starting...");
+
+  // Check WebGL
+  const gl = document.createElement('canvas').getContext('webgl2')
+           || document.createElement('canvas').getContext('webgl');
+if (!gl) {
+    setText("❌ WebGL not supported");
+    return;
+  }
+
+  // Enable GPU
+  await tf.setBackend('webgl');
+  await tf.ready();
+
+  const backend = tf.getBackend();
+
+  const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+  let gpu = "Unknown";
+  if (debugInfo) {
+    gpu = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+  }
+
+  setText(`
+    Backend: ${backend}<br>
+    GPU: ${gpu}<br>
+    Loading model...
+  `);
+
+  // Load MobileNet (fast version)
+  const model = await mobilenet.load({ version: 2, alpha: 0.75 });
+
+  // Warm up GPU
+  await model.classify(tf.zeros([224,224,3]));
+
+  setText(`
+    Backend: ${backend}<br>
+    GPU: ${gpu}<br>
+    ✅ Model ready<br>
+    Starting camera...
+  `);
+
+  // Webcam setup
+  const video = document.getElementById('cam');
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+  await new Promise(r => video.onloadedmetadata = r);
+
+  const webcam = await tf.data.webcam(video);
+
+  // Prediction loop every 1 second
+  setInterval(async () => {
+    const img = await webcam.capture();
+
+    const resized = tf.image.resizeBilinear(img, [224,224]);
+
+    const result = await model.classify(resized);
+
+    img.dispose();
+    resized.dispose();
+
+    const label = result[0].className;
+    const confidence = (result[0].probability * 100).toFixed(1);
+
+    setText(`
+      Backend: ${backend}<br>
+      GPU: ${gpu}<br><br>
+      Prediction:<br>
+      <b>${label}</b><br>
+      ${confidence}%<br><br>
+      Tensors: ${tf.memory().numTensors}
+    `);
+
+  }, 1000);
+}
+
+start();
+</script>
+
+</body>
+</html>
