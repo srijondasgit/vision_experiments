@@ -2,12 +2,12 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Digital Display OCR Snapshot Gallery</title>
+<title>Digital Display OCR Vertical Gallery</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
 body { background:#111; color:#0f0; font-family:monospace; }
-#videoContainer { display:flex; flex-direction:column; align-items:flex-start; }
-#container { position: relative; width:320px; }
+#videoContainer { margin-bottom:10px; }
+#videoWrapper { position:relative; width:320px; height:240px; }
 video, canvas { position:absolute; top:0; left:0; }
 #overlay { pointer-events:none; }
 button#captureBtn {
@@ -15,22 +15,21 @@ button#captureBtn {
   width: 320px;
   margin: 10px 0;
   padding: 5px;
-  z-index: 10;
-  position: relative;
 }
-#gallery { display:flex; flex-wrap: wrap; gap:10px; margin-top:20px; }
-.snapshot { position: relative; border:2px solid #0f0; display:inline-block; width:320px; height:240px; }
-.snapshot canvas { position:absolute; top:0; left:0; pointer-events:auto; width:320px; height:240px; }
-.snapshot p { margin:0; color:#0f0; font-family:monospace; text-align:center; }
+#gallery { display:flex; flex-direction:column; gap:10px; margin-top:20px; }
+.snapshot { display:flex; flex-direction:row; align-items:center; border:2px solid #0f0; width:420px; height:240px; }
+.snapshot .canvasWrapper { position:relative; width:320px; height:240px; flex-shrink:0; }
+.snapshot canvas { position:absolute; top:0; left:0; width:320px; height:240px; }
+.snapshot .output { margin-left:10px; min-width:80px; color:#0f0; font-family:monospace; }
 #canvas { display:none; } /* hidden processing canvas */
 </style>
 </head>
 <body>
 
-<h2>Digital Display OCR Snapshot Gallery</h2>
+<h2>Digital Display OCR Vertical Gallery</h2>
 
 <div id="videoContainer">
-  <div id="container">
+  <div id="videoWrapper">
     <video id="video" width="320" height="240" autoplay></video>
     <canvas id="overlay" width="320" height="240"></canvas>
   </div>
@@ -70,7 +69,7 @@ async function processFrame(frameCanvas, frameOverlay, frameOutput) {
     }
   );
 
-  frameOutput.innerText = "Detected: " + result.data.text.trim();
+  frameOutput.innerText = result.data.text.trim() || "No digits detected";
 
   if (result.data.words) {
     result.data.words.forEach(word => {
@@ -97,24 +96,32 @@ async function processFrame(frameCanvas, frameOverlay, frameOutput) {
 
 // Capture button click
 captureBtn.addEventListener("click", async () => {
-  // Create a new snapshot container
+  // Create snapshot container
   const snapDiv = document.createElement("div");
   snapDiv.className = "snapshot";
 
-  // Create image canvas
+  // Canvas wrapper for correct flex layout
+  const canvasWrapper = document.createElement("div");
+  canvasWrapper.className = "canvasWrapper";
+
+  // Snapshot canvas
   const snapCanvas = document.createElement("canvas");
   snapCanvas.width = video.videoWidth;
   snapCanvas.height = video.videoHeight;
-  snapDiv.appendChild(snapCanvas);
+  canvasWrapper.appendChild(snapCanvas);
 
-  // Create overlay canvas
+  // Overlay canvas
   const snapOverlay = document.createElement("canvas");
   snapOverlay.width = 320;
   snapOverlay.height = 240;
-  snapDiv.appendChild(snapOverlay);
+  canvasWrapper.appendChild(snapOverlay);
 
-  // Create output paragraph
-  const snapOutput = document.createElement("p");
+  snapDiv.appendChild(canvasWrapper);
+
+  // Output element to the right
+  const snapOutput = document.createElement("div");
+  snapOutput.className = "output";
+  snapOutput.innerText = "Detecting...";
   snapDiv.appendChild(snapOutput);
 
   gallery.appendChild(snapDiv);
@@ -128,7 +135,7 @@ captureBtn.addEventListener("click", async () => {
   const snapCtx = snapCanvas.getContext("2d");
   snapCtx.drawImage(canvas, 0, 0, snapCanvas.width, snapCanvas.height);
 
-  // convert to grayscale (optional)
+  // convert to grayscale
   const imageData = snapCtx.getImageData(0, 0, snapCanvas.width, snapCanvas.height);
   const data = imageData.data;
   for (let i = 0; i < data.length; i += 4) {
