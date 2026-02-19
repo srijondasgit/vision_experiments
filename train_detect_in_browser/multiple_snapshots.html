@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Digital Display OCR Gallery with Delete</title>
+<title>Digital Display OCR Gallery Editable</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
 body { background:#111; color:#0f0; font-family:monospace; }
@@ -16,18 +16,18 @@ button#captureBtn {
   margin: 10px 0;
   padding: 5px;
 }
-#gallery { display:flex; flex-direction:column; gap:10px; margin-top:20px; }
-.snapshot { display:flex; flex-direction:row; align-items:center; border:2px solid #0f0; width:500px; height:240px; }
+#gallery { display:flex; flex-direction:column; gap:10px; margin-top:20px; max-height:600px; overflow-y:auto; }
+.snapshot { display:flex; flex-direction:row; align-items:center; border:2px solid #0f0; width:550px; height:240px; }
 .snapshot .canvasWrapper { position:relative; width:320px; height:240px; flex-shrink:0; }
 .snapshot canvas { position:absolute; top:0; left:0; width:320px; height:240px; }
-.snapshot .output { margin-left:10px; min-width:80px; color:#0f0; font-family:monospace; }
-.snapshot button.deleteBtn { margin-left:10px; padding:5px; cursor:pointer; background:#800; color:#fff; border:none; border-radius:4px; }
+.snapshot textarea { margin-left:10px; width:120px; height:220px; background:#111; color:#0f0; border:1px solid #0f0; font-family:monospace; font-size:14px; padding:5px; resize:none; }
+.snapshot button.deleteBtn { margin-left:10px; padding:5px; cursor:pointer; background:#800; color:#fff; border:none; border-radius:4px; height:30px; align-self:flex-start; }
 #canvas { display:none; } /* hidden processing canvas */
 </style>
 </head>
 <body>
 
-<h2>Digital Display OCR Vertical Gallery</h2>
+<h2>Digital Display OCR Vertical Gallery (Editable)</h2>
 
 <div id="videoContainer">
   <div id="videoWrapper">
@@ -57,7 +57,7 @@ async function startCamera() {
 }
 
 // OCR on a given canvas
-async function processFrame(frameCanvas, frameOverlay, frameOutput) {
+async function processFrame(frameCanvas, frameOverlay, frameTextarea) {
   const ctxOverlay = frameOverlay.getContext('2d');
   ctxOverlay.clearRect(0,0,frameOverlay.width,frameOverlay.height);
 
@@ -70,8 +70,20 @@ async function processFrame(frameCanvas, frameOverlay, frameOutput) {
     }
   );
 
-  frameOutput.innerText = result.data.text.trim() || "No digits detected";
+  // Combine all detected words into lines for editing
+  const lines = [];
+  if (result.data.words) {
+    result.data.words.forEach(word => {
+      const text = word.text.trim();
+      if (/^[0-9.]+$/.test(text)) {
+        lines.push(text);
+      }
+    });
+  }
 
+  frameTextarea.value = lines.join('\n') || "No digits detected";
+
+  // Draw bounding boxes
   if (result.data.words) {
     result.data.words.forEach(word => {
       const text = word.text.trim();
@@ -97,7 +109,6 @@ async function processFrame(frameCanvas, frameOverlay, frameOutput) {
 
 // Capture button click
 captureBtn.addEventListener("click", async () => {
-  // Create snapshot container
   const snapDiv = document.createElement("div");
   snapDiv.className = "snapshot";
 
@@ -105,13 +116,11 @@ captureBtn.addEventListener("click", async () => {
   const canvasWrapper = document.createElement("div");
   canvasWrapper.className = "canvasWrapper";
 
-  // Snapshot canvas
   const snapCanvas = document.createElement("canvas");
   snapCanvas.width = video.videoWidth;
   snapCanvas.height = video.videoHeight;
   canvasWrapper.appendChild(snapCanvas);
 
-  // Overlay canvas
   const snapOverlay = document.createElement("canvas");
   snapOverlay.width = 320;
   snapOverlay.height = 240;
@@ -119,11 +128,10 @@ captureBtn.addEventListener("click", async () => {
 
   snapDiv.appendChild(canvasWrapper);
 
-  // Output element to the right
-  const snapOutput = document.createElement("div");
-  snapOutput.className = "output";
-  snapOutput.innerText = "Detecting...";
-  snapDiv.appendChild(snapOutput);
+  // Editable OCR textarea
+  const snapTextarea = document.createElement("textarea");
+  snapTextarea.value = "Detecting...";
+  snapDiv.appendChild(snapTextarea);
 
   // Delete button
   const delBtn = document.createElement("button");
@@ -141,11 +149,11 @@ captureBtn.addEventListener("click", async () => {
   canvas.height = video.videoHeight;
   ctx.drawImage(video, 0, 0);
 
-  // copy to snapshot canvas
+  // Copy to snapshot canvas
   const snapCtx = snapCanvas.getContext("2d");
   snapCtx.drawImage(canvas, 0, 0, snapCanvas.width, snapCanvas.height);
 
-  // convert to grayscale
+  // Convert to grayscale
   const imageData = snapCtx.getImageData(0, 0, snapCanvas.width, snapCanvas.height);
   const data = imageData.data;
   for (let i = 0; i < data.length; i += 4) {
@@ -154,8 +162,8 @@ captureBtn.addEventListener("click", async () => {
   }
   snapCtx.putImageData(imageData, 0, 0);
 
-  // run OCR
-  await processFrame(snapCanvas, snapOverlay, snapOutput);
+  // Run OCR
+  await processFrame(snapCanvas, snapOverlay, snapTextarea);
 });
 
 // start camera
