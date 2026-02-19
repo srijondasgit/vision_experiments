@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Digital Display OCR with Bounding Boxes</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+body { background:#111; color:#0f0; font-family:monospace; }
+#container { position: relative; width:320px; }
+video, #overlay {
+  position:absolute;
+  top:0;
+  left:0;
+}
+#overlay { pointer-events:auto; }
+#output { margin-top:260px; }
+#canvas { display:none; }
+</style>
+</head>
+<body>
+
+<h2>Digital Display OCR</h2>
+
+<div id="container">
+  <video id="video" width="320" height="240" autoplay></video>
+  <canvas id="overlay" width="320" height="240"></canvas>
+</div>
+
+<p id="output">Reading...</p>
+
+<canvas id="canvas"></canvas> <!-- hidden processing canvas -->
+
+<script>
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const ctxOverlay = overlay.getContext('2d');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const output = document.getElementById('output');
+
+let boxes = [];
+let processing = false;
+
+// start camera
+async function startCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+}
+
+// main OCR function
+async function readDigits() {
+  if (processing) return;
+  processing = true;
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0);
+
+  // grayscale (improves OCR)
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = data[i]*0.3 + data[i+1]*0.59 + data[i+2]*0.11;
+    data[i] = data[i+1] = data[i+2] = gray;
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  // OCR
+  const result = await Tesseract.recognize(
+    canvas,
+    'eng',
+    {
+      tessedit_char_whitelist: '0123456789.',
+      tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK
+    }
+  );
+
+  // display detected text
+  output.innerText = "Detected: " + result.data.text.trim();
+
+  // draw bounding boxes
+  ctxOverlay.clearRect(0,0,overlay.width,overlay.height);
+  boxes = [];
+
+  if (result.data.words) {
+    result.data.words.forEach(word => {
+      const text = word.text.trim();
+
+      if (/^[0-9.]+$/.test(text)) {
+        const { x0, y0, x1, y1 } = word.bbox;
+
+        // scale coordinates to overlay display
+        const scaleX = overlay.width / canvas.width;
+        const scaleY = overlay.height / canvas.height;
+
+        const sx = x0 * scaleX;
+        const sy = y0 * scaleY;
+        const sw = (x1 - x0) * scaleX;
+        const sh = (y1 - y0) * scaleY;
+
+        boxes.push({ text, x: sx, y: sy, width: sw, height: sh });
+
+        ctxOverlay.strokeStyle = "lime";
+        ctxOverlay.lineWidth = 2;
+        ctxOverlay.strokeRect(sx, sy, sw, sh);
+
+        ctxOverlay.fillStyle = "lime";
+        ctxOverlay.fillText(text, sx, sy - 5);
+      }
+    });
+  }
+
+  processing = false;
+}
+
+// click selection
+overlay.addEventListener("click", e => {
+  const rect = overlay.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  boxes.forEach(box => {
+    if (
+      x >= box.x &&
+      x <= box.x + box.width &&
+      y >= box.y &&
+      y <= box.y + box.height
+    ) {
+      output.innerText = "Selected Number: " + box.text;
+    }
+  });
+});
+
+// start camera and OCR loop
+startCamera();
+setInterval(readDigits, 2000);
+</script>
+
+</body>
+</html>
