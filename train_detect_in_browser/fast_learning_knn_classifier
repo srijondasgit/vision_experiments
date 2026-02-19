@@ -20,6 +20,8 @@ video{position:fixed;bottom:10px;right:10px;border:2px solid #0f0;border-radius:
   <button onclick="addExample(0)">Add My Face</button>
   <button onclick="addExample(1)">Add My Hand</button>
   <button onclick="addExample(2)">Add Background</button>
+  <button onclick="saveModel()">Save Model</button>
+  <button onclick="clearModel()">Clear Saved Model</button>
 </div>
 
 <video id="cam" width="220" height="160" autoplay playsinline></video>
@@ -28,43 +30,114 @@ video{position:fixed;bottom:10px;right:10px;border:2px solid #0f0;border-radius:
 let mobilenetModel, webcam, classifier;
 const status = document.getElementById("status");
 
-// initialize models
-async function init(){
-  status.innerHTML="Loading MobileNet...";
-  mobilenetModel = await mobilenet.load({version:2, alpha:0.75});
-  classifier = knnClassifier.create();
+// Initialize classifier
+classifier = knnClassifier.create();
 
-  const video = document.getElementById("cam");
-  const stream = await navigator.mediaDevices.getUserMedia({video:true});
-  video.srcObject = stream;
-  await new Promise(r=>video.onloadedmetadata=r);
-  webcam = await tf.data.webcam(video);
-  status.innerHTML="Ready! Add samples.";
+// --- SAVE / LOAD KNN CLASSIFIER ---
+async function saveModel(){
+  const dataset = classifier.getClassifierDataset();
+  const datasetObj = {};
+  for(const key of Object.keys(dataset)){
+    const data = await dataset[key].array(); // convert tensor to array
+    datasetObj[key] = {data, shape: dataset[key].shape};
+  }
+  localStorage.setItem('knnClassifier', JSON.stringify(datasetObj));
+  alert("KNN model saved!");
 }
 
-// add example to KNN
+async function loadModel(){
+  const datasetStr = localStorage.getItem('knnClassifier');
+  if(!datasetStr) return false;
+
+  const datasetObj = JSON.parse(datasetStr);
+  const tensorObj = {};
+  for(const key of Object.keys(datasetObj)){
+    const {data, shape} = datasetObj[key];
+    tensorObj[key] = tf.tensor(data, shape);
+  }
+  classifier.setClassifierDataset(tensorObj);
+  return true;
+}
+
+function clearModel(){
+  localStorage.removeItem('knnClassifier');
+  alert("Saved KNN model cleared!");
+}
+
+// --- INIT FUNCTION ---
+async function init(){
+  try{
+    status.innerHTML = "Loading MobileNet...";
+    mobilenetModel = await mobilenet.load({version:2, alpha:0.75});
+
+    // Ask user if they want to load previous model
+    if(localStorage.getItem('knnClassifier')){
+      const loadPrevious = confirm("A saved model exists. Do you want to load it?");
+      if(loadPrevious){
+        await loadModel();
+        status.innerHTML = "Loaded saved model. Ready!";
+
+        // Start prediction immediately if classifier has classes
+        if(classifier.getNumClasses() > 0){
+          predictLoop();
+        }
+      }
+    }
+
+    // Camera setup (rear camera preferred)
+    const video = document.getElementById("cam");
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
+    } catch(e){
+      stream = await navigator.mediaDevices.getUserMedia({video:true});
+    }
+    video.srcObject = stream;
+    await new Promise(r=>video.onloadedmetadata=r);
+    webcam = await tf.data.webcam(video);
+
+    // Start prediction if model was already loaded and classes exist
+    if(classifier.getNumClasses() > 0 && !predicting){
+      predictLoop();
+    }
+
+    if(!status.innerHTML.includes("Loaded saved model"))
+      status.innerHTML="Ready! Add samples.";
+
+  } catch(err){
+    console.error(err);
+    status.innerHTML="Error loading model or camera.";
+  }
+}
+
+// --- ADD EXAMPLE ---
 async function addExample(label){
+  if(!webcam) return;
   const img = await webcam.capture();
   const activation = mobilenetModel.infer(tf.image.resizeBilinear(img,[224,224]),'conv_preds');
   classifier.addExample(activation, label);
   img.dispose();
-  status.innerHTML=`Samples: ${classifier.getClassExampleCount()[label]||0} for label ${label}`;
-  predictLoop(); // start prediction loop immediately
+  activation.dispose();
+
+  status.innerHTML = `Samples: ${classifier.getClassExampleCount()[label]||0} for label ${label}`;
+
+  predictLoop();
 }
 
-// continuously predict
+// --- PREDICTION LOOP ---
 let predicting=false;
 async function predictLoop(){
   if(predicting) return;
   predicting=true;
   const labels=["My Face","My Hand","Background"];
   while(true){
-    if(classifier.getNumClasses() > 0){
+    if(classifier.getNumClasses()>0 && webcam){
       const img = await webcam.capture();
       const activation = mobilenetModel.infer(tf.image.resizeBilinear(img,[224,224]),'conv_preds');
       const result = await classifier.predictClass(activation);
-      status.innerHTML=`Prediction:<br><b>${labels[result.label]}</b>`;
-      img.dispose(); activation.dispose();
+      status.innerHTML = `Prediction:<br><b>${labels[result.label]}</b>`;
+      img.dispose();
+      activation.dispose();
     }
     await tf.nextFrame();
   }
