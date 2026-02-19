@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Digital Display OCR Snapshot Gallery</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+body { background:#111; color:#0f0; font-family:monospace; }
+#videoContainer { display:flex; flex-direction:column; align-items:flex-start; }
+#container { position: relative; width:320px; }
+video, canvas { position:absolute; top:0; left:0; }
+#overlay { pointer-events:none; }
+button#captureBtn {
+  display: block;
+  width: 320px;
+  margin: 10px 0;
+  padding: 5px;
+  z-index: 10;
+  position: relative;
+}
+#gallery { display:flex; flex-wrap: wrap; gap:10px; margin-top:20px; }
+.snapshot { position: relative; border:2px solid #0f0; display:inline-block; width:320px; height:240px; }
+.snapshot canvas { position:absolute; top:0; left:0; pointer-events:auto; width:320px; height:240px; }
+.snapshot p { margin:0; color:#0f0; font-family:monospace; text-align:center; }
+#canvas { display:none; } /* hidden processing canvas */
+</style>
+</head>
+<body>
+
+<h2>Digital Display OCR Snapshot Gallery</h2>
+
+<div id="videoContainer">
+  <div id="container">
+    <video id="video" width="320" height="240" autoplay></video>
+    <canvas id="overlay" width="320" height="240"></canvas>
+  </div>
+  <button id="captureBtn">Capture & Detect</button>
+</div>
+
+<div id="gallery"></div>
+
+<canvas id="canvas"></canvas> <!-- hidden processing canvas -->
+
+<script>
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const ctxOverlay = overlay.getContext('2d');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const captureBtn = document.getElementById('captureBtn');
+const gallery = document.getElementById('gallery');
+
+// start camera
+async function startCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+}
+
+// OCR on a given canvas
+async function processFrame(frameCanvas, frameOverlay, frameOutput) {
+  const ctxOverlay = frameOverlay.getContext('2d');
+  ctxOverlay.clearRect(0,0,frameOverlay.width,frameOverlay.height);
+
+  const result = await Tesseract.recognize(
+    frameCanvas,
+    'eng',
+    {
+      tessedit_char_whitelist: '0123456789.',
+      tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK
+    }
+  );
+
+  frameOutput.innerText = "Detected: " + result.data.text.trim();
+
+  if (result.data.words) {
+    result.data.words.forEach(word => {
+      const text = word.text.trim();
+      if (/^[0-9.]+$/.test(text)) {
+        const { x0, y0, x1, y1 } = word.bbox;
+        const scaleX = frameOverlay.width / frameCanvas.width;
+        const scaleY = frameOverlay.height / frameCanvas.height;
+        const sx = x0 * scaleX;
+        const sy = y0 * scaleY;
+        const sw = (x1 - x0) * scaleX;
+        const sh = (y1 - y0) * scaleY;
+
+        ctxOverlay.strokeStyle = "lime";
+        ctxOverlay.lineWidth = 2;
+        ctxOverlay.strokeRect(sx, sy, sw, sh);
+
+        ctxOverlay.fillStyle = "lime";
+        ctxOverlay.fillText(text, sx, sy - 5);
+      }
+    });
+  }
+}
+
+// Capture button click
+captureBtn.addEventListener("click", async () => {
+  // Create a new snapshot container
+  const snapDiv = document.createElement("div");
+  snapDiv.className = "snapshot";
+
+  // Create image canvas
+  const snapCanvas = document.createElement("canvas");
+  snapCanvas.width = video.videoWidth;
+  snapCanvas.height = video.videoHeight;
+  snapDiv.appendChild(snapCanvas);
+
+  // Create overlay canvas
+  const snapOverlay = document.createElement("canvas");
+  snapOverlay.width = 320;
+  snapOverlay.height = 240;
+  snapDiv.appendChild(snapOverlay);
+
+  // Create output paragraph
+  const snapOutput = document.createElement("p");
+  snapDiv.appendChild(snapOutput);
+
+  gallery.appendChild(snapDiv);
+
+  // Draw current video frame to hidden canvas
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0);
+
+  // copy to snapshot canvas
+  const snapCtx = snapCanvas.getContext("2d");
+  snapCtx.drawImage(canvas, 0, 0, snapCanvas.width, snapCanvas.height);
+
+  // convert to grayscale (optional)
+  const imageData = snapCtx.getImageData(0, 0, snapCanvas.width, snapCanvas.height);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = data[i]*0.3 + data[i+1]*0.59 + data[i+2]*0.11;
+    data[i] = data[i+1] = data[i+2] = gray;
+  }
+  snapCtx.putImageData(imageData, 0, 0);
+
+  // run OCR
+  await processFrame(snapCanvas, snapOverlay, snapOutput);
+});
+
+// start camera
+startCamera();
+</script>
+
+</body>
+</html>
