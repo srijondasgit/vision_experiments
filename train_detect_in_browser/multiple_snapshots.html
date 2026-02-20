@@ -100,7 +100,6 @@ async function attachStream(stream) {
   video.srcObject = stream;
   await video.play().catch(() => {});
 }
-
 // ── SWITCH by deviceId — the only reliable method on Android ─────────────────
 // Switching facingMode mid-session triggers NotAllowedError on many Android
 // browsers (Chrome, Samsung Internet). Using the exact deviceId obtained after
@@ -164,7 +163,8 @@ function handleError(err) {
     msg = '⚠ Camera in use by another app. Close other apps and retry.';
   }
   errorMsg.textContent = msg;
-  facingLabel.textContent = 'Error';
+
+    facingLabel.textContent = 'Error';
 }
 
 // ── OCR ───────────────────────────────────────────────────────────────────────
@@ -221,6 +221,7 @@ captureBtn.addEventListener('click', async () => {
   snapTextarea.value = 'Detecting...';
   snapDiv.appendChild(snapTextarea);
 
+  
   const delBtn = document.createElement('button');
   delBtn.className = 'deleteBtn';
   delBtn.innerText  = 'Delete';
@@ -254,3 +255,4 @@ init();
 
 </body>
 </html>
+                        
