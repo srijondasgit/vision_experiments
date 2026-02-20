@@ -8,22 +8,23 @@
 <style>
 body { background:#111; color:#0f0; font-family:monospace; margin:10px; }
 #videoContainer { margin-bottom:10px; }
-#videoWrapper { position:relative; width:320px; height:240px; }
-video, canvas { position:absolute; top:0; left:0; }
+#videoWrapper { position:relative; width:100%; max-width:320px; aspect-ratio:4/3; }
+video, canvas { position:absolute; top:0; left:0; width:100%; height:100%; }
 #overlay { pointer-events:none; }
-.btn-row { display:flex; gap:8px; margin:10px 0; width:320px; }
+.btn-row { display:flex; gap:8px; margin:10px 0; width:100%; max-width:320px; }
 .btn-row button { flex:1; padding:5px; font-family:monospace; cursor:pointer; }
 #captureBtn { background:#111; color:#0f0; border:1px solid #0f0; }
+#captureBtn:disabled { opacity:0.4; cursor:not-allowed; }
 #switchBtn  { background:#111; color:#0af; border:1px solid #0af; }
 #switchBtn:disabled { opacity:0.4; cursor:not-allowed; }
 #cameraLabel { font-size:11px; color:#888; margin-bottom:4px; }
 #errorMsg { color:#f55; font-size:12px; margin-top:4px; min-height:16px; }
-#gallery { display:flex; flex-direction:column; gap:10px; margin-top:20px; max-height:600px; overflow-y:auto; }
-.snapshot { display:flex; flex-direction:row; align-items:center; border:2px solid #0f0; width:550px; height:240px; }
-.snapshot .canvasWrapper { position:relative; width:320px; height:240px; flex-shrink:0; }
-.snapshot canvas { position:absolute; top:0; left:0; width:320px; height:240px; }
-.snapshot textarea { margin-left:10px; width:120px; height:220px; background:#111; color:#0f0; border:1px solid #0f0; font-family:monospace; font-size:14px; padding:5px; resize:none; }
-.snapshot button.deleteBtn { margin-left:10px; padding:5px; cursor:pointer; background:#800; color:#fff; border:none; border-radius:4px; height:30px; align-self:flex-start; }
+#gallery { display:flex; flex-direction:column; gap:20px; margin-top:20px; max-height:600px; overflow-y:auto; }
+.snapshot { display:flex; flex-direction:column; border:2px solid #0f0; width:100%; max-width:550px; }
+.snapshot .canvasWrapper { position:relative; width:100%; max-width:320px; aspect-ratio:4/3; margin-bottom:5px; }
+.snapshot canvas { position:absolute; top:0; left:0; width:100%; height:100%; }
+.snapshot textarea { width:100%; background:#111; color:#0f0; border:1px solid #0f0; font-family:monospace; font-size:14px; padding:5px; resize:none; margin-bottom:5px; }
+.snapshot button.deleteBtn { padding:5px; cursor:pointer; background:#800; color:#fff; border:none; border-radius:4px; width:100px; align-self:flex-start; }
 #canvas { display:none; }
 </style>
 </head>
@@ -34,8 +35,8 @@ video, canvas { position:absolute; top:0; left:0; }
 <div id="videoContainer">
   <div id="cameraLabel">📷 Camera: <span id="facingLabel">Initializing...</span></div>
   <div id="videoWrapper">
-    <video id="video" width="320" height="240" autoplay playsinline muted></video>
-    <canvas id="overlay" width="320" height="240"></canvas>
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
   </div>
   <div class="btn-row">
     <button id="captureBtn">Capture &amp; Detect</button>
@@ -62,28 +63,18 @@ let currentStream = null;
 let videoDevices  = [];
 let currentIndex  = 0;
 
-// ── STEP 1: Open a stream first, THEN enumerate ──────────────────────────────
-// On Android, enumerateDevices() before permission returns blank labels/IDs.
-// We must open any camera first so the browser grants permission, then
-// enumerate to get real deviceIds we can use for reliable switching.
+// ── Camera Init ──────────────────────────────────────────────────────────────
 async function init() {
   errorMsg.textContent = '';
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } }
-    });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
     await attachStream(stream);
     await enumerateDevices();
-
-    // Match currentIndex to the active track's deviceId
     const activeId = currentStream.getVideoTracks()[0].getSettings().deviceId;
     const matched  = videoDevices.findIndex(d => d.deviceId === activeId);
     if (matched !== -1) currentIndex = matched;
-
     updateLabel();
     switchBtn.disabled = videoDevices.length < 2;
-    if (videoDevices.length < 2) switchBtn.title = 'Only one camera detected';
-
   } catch (err) {
     handleError(err);
   }
@@ -100,11 +91,7 @@ async function attachStream(stream) {
   video.srcObject = stream;
   await video.play().catch(() => {});
 }
-// ── SWITCH by deviceId — the only reliable method on Android ─────────────────
-// Switching facingMode mid-session triggers NotAllowedError on many Android
-// browsers (Chrome, Samsung Internet). Using the exact deviceId obtained after
-// initial enumeration avoids this because the browser sees it as a fresh
-// explicit request, not a constraint change on an active track.
+
 async function switchCamera() {
   if (videoDevices.length < 2) return;
   switchBtn.disabled = true;
@@ -114,15 +101,10 @@ async function switchCamera() {
   const deviceId = videoDevices[currentIndex].deviceId;
 
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: deviceId } }
-      // Using `exact` forces this specific device.
-      // Do NOT use facingMode here — it can conflict with deviceId on Android.
-    });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
     await attachStream(stream);
     updateLabel();
   } catch (err) {
-    // Roll back on failure
     currentIndex = (currentIndex - 1 + videoDevices.length) % videoDevices.length;
     handleError(err);
   } finally {
@@ -134,40 +116,27 @@ function updateLabel() {
   if (!currentStream) return;
   const settings = currentStream.getVideoTracks()[0].getSettings();
   const facing   = settings.facingMode;
-
-  if (facing === 'environment') {
-    facingLabel.textContent = 'Rear 🔭';
-  } else if (facing === 'user') {
-    facingLabel.textContent = 'Front 🤳';
-  } else {
-    // facingMode not reported by some Android browsers — guess from label
+  if (facing === 'environment') facingLabel.textContent = 'Rear 🔭';
+  else if (facing === 'user') facingLabel.textContent = 'Front 🤳';
+  else {
     const label = (videoDevices[currentIndex]?.label || '').toLowerCase();
-    if (label.includes('back') || label.includes('rear') || label.includes('environment')) {
-      facingLabel.textContent = 'Rear 🔭';
-    } else if (label.includes('front') || label.includes('user') || label.includes('selfie')) {
-      facingLabel.textContent = 'Front 🤳';
-    } else {
-      facingLabel.textContent = `Cam ${currentIndex + 1} of ${videoDevices.length}`;
-    }
+    if (label.includes('back') || label.includes('rear')) facingLabel.textContent = 'Rear 🔭';
+    else if (label.includes('front') || label.includes('selfie')) facingLabel.textContent = 'Front 🤳';
+    else facingLabel.textContent = `Cam ${currentIndex+1} of ${videoDevices.length}`;
   }
 }
 
 function handleError(err) {
   console.error(err);
   let msg = '⚠ ' + (err.message || err.name || 'Unknown error');
-  if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-    msg = '⚠ Camera permission denied. Please allow camera access in browser settings.';
-  } else if (err.name === 'NotFoundError') {
-    msg = '⚠ No camera found on this device.';
-  } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-    msg = '⚠ Camera in use by another app. Close other apps and retry.';
-  }
+  if (err.name === 'NotAllowedError') msg = '⚠ Camera permission denied.';
+  else if (err.name === 'NotFoundError') msg = '⚠ No camera found on this device.';
+  else if (err.name === 'NotReadableError') msg = '⚠ Camera in use by another app.';
   errorMsg.textContent = msg;
-
-    facingLabel.textContent = 'Error';
+  facingLabel.textContent = 'Error';
 }
 
-// ── OCR ───────────────────────────────────────────────────────────────────────
+// ── OCR ─────────────────────────────────────────────────────────────────────
 async function processFrame(frameCanvas, frameOverlay, frameTextarea) {
   const ctxOv = frameOverlay.getContext('2d');
   ctxOv.clearRect(0, 0, frameOverlay.width, frameOverlay.height);
@@ -197,8 +166,12 @@ async function processFrame(frameCanvas, frameOverlay, frameTextarea) {
   frameTextarea.value = lines.join('\n') || 'No digits detected';
 }
 
-// ── Capture ───────────────────────────────────────────────────────────────────
+// ── Capture with max 5 snapshots, newest at top ───────────────────────────────
 captureBtn.addEventListener('click', async () => {
+  if (gallery.children.length >= 5) {
+    captureBtn.disabled = true; // Disable button at 5 snapshots
+  }
+
   const snapDiv = document.createElement('div');
   snapDiv.className = 'snapshot';
 
@@ -221,14 +194,16 @@ captureBtn.addEventListener('click', async () => {
   snapTextarea.value = 'Detecting...';
   snapDiv.appendChild(snapTextarea);
 
-  
   const delBtn = document.createElement('button');
   delBtn.className = 'deleteBtn';
   delBtn.innerText  = 'Delete';
-  delBtn.addEventListener('click', () => gallery.removeChild(snapDiv));
+  delBtn.addEventListener('click', () => {
+    gallery.removeChild(snapDiv);
+    if (gallery.children.length < 5) captureBtn.disabled = false;
+  });
   snapDiv.appendChild(delBtn);
 
-  gallery.appendChild(snapDiv);
+  gallery.prepend(snapDiv); // Newest snapshot at top
 
   canvas.width  = video.videoWidth  || 320;
   canvas.height = video.videoHeight || 240;
@@ -237,7 +212,7 @@ captureBtn.addEventListener('click', async () => {
   const snapCtx = snapCanvas.getContext('2d');
   snapCtx.drawImage(canvas, 0, 0, snapCanvas.width, snapCanvas.height);
 
-  // Grayscale conversion
+  // Grayscale
   const imageData = snapCtx.getImageData(0, 0, snapCanvas.width, snapCanvas.height);
   const data = imageData.data;
   for (let i = 0; i < data.length; i += 4) {
@@ -255,4 +230,3 @@ init();
 
 </body>
 </html>
-                        
