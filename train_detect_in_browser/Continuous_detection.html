@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Digital Display OCR</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background: #0a0a0a;
+    color: #00ff88;
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  h2 {
+    font-size: 1rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin: 12px 0 8px;
+    color: #00ff88;
+    opacity: 0.7;
+  }
+
+  #cam-wrapper {
+    position: relative;
+    width: 100vw;
+    max-width: 480px;
+    /* height set by JS to match video aspect ratio */
+  }
+
+  #video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #000;
+  }
+
+  #overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: auto;
+    touch-action: none;
+  }
+
+  #controls {
+    display: flex;
+    gap: 10px;
+    padding: 10px 16px;
+    width: 100%;
+    max-width: 480px;
+  }
+
+button {
+    flex: 1;
+    padding: 10px 6px;
+    background: transparent;
+    border: 1px solid #00ff88;
+    color: #00ff88;
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:active, button.active {
+    background: #00ff8833;
+  }
+
+  #output-box {
+    width: 100%;
+    max-width: 480px;
+    padding: 12px 16px;
+    border-top: 1px solid #00ff8833;
+  }
+
+  #status {
+    font-size: 0.7rem;
+    opacity: 0.5;
+    margin-bottom: 4px;
+    min-height: 1em;
+  }
+
+  #output {
+    font-size: 1.4rem;
+    font-weight: bold;
+    color: #00ff88;
+    min-height: 2rem;
+    word-break: break-all;
+  }
+
+  #selected {
+    margin-top: 8px;
+    font-size: 1rem;
+    color: #ffff00;
+    min-height: 1.5rem;
+  }
+
+  #canvas { display: none; }
+
+  .scanning #status::after {
+    content: '';
+    animation: dots 1.2s infinite;
+  }
+
+  @keyframes dots {
+    0%   { content: '.'; }
+    33%  { content: '..'; }
+    66%  { content: '...'; }
+  }
+</style>
+</head>
+<body>
+
+<h2>Display OCR</h2>
+
+<div id="cam-wrapper">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="overlay"></canvas>
+</div>
+
+<div id="controls">
+  <button id="btn-torch" onclick="toggleTorch()">⚡ Torch</button>
+  <button id="btn-cam" onclick="switchCamera()">↩ Flip</button>
+  <button id="btn-pause" onclick="togglePause()">⏸ Pause</button>
+</div>
+
+<div id="output-box">
+  <div id="status">Starting camera...</div>
+  <div id="output">—</div>
+  <div id="selected"></div>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+  const video    = document.getElementById('video');
+  const overlay  = document.getElementById('overlay');
+  const ctxOv   = overlay.getContext('2d');
+  const canvas   = document.getElementById('canvas');
+  const ctx      = canvas.getContext('2d');
+  const wrapper  = document.getElementById('cam-wrapper');
+  const statusEl = document.getElementById('status');
+  const outputEl = document.getElementById('output');
+  const selectedEl = document.getElementById('selected');
+
+  let boxes = [];
+  let processing = false;
+  let paused = false;
+  let currentStream = null;
+  let torchOn = false;
+  let usingRear = true;
+  let ocrInterval = null;
+  let torchTrack = null;
+
+  // ─── CAMERA ──────────────────────────────────────────────────────────────
+
+  async function startCamera(rear = true) {
+    // Stop existing stream
+    if (currentStream) {
+      currentStream.getTracks().forEach(t => t.stop());
+      currentStream = null;
+    }
+
+    const constraints = {
+      video: {
+        facingMode: rear ? { ideal: 'environment' } : { ideal: 'user' },
+        width:  { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    };
+    try {
+      currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (e) {
+      // Fallback: any camera
+      try {
+        currentStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      } catch (e2) {
+        statusEl.textContent = 'Camera access denied.';
+        return;
+      }
+    }
+
+    video.srcObject = currentStream;
+
+    // Grab torch track if rear
+    torchTrack = null;
+    if (rear) {
+      const vTrack = currentStream.getVideoTracks()[0];
+      if (vTrack && typeof vTrack.getCapabilities === 'function') {
+        const caps = vTrack.getCapabilities();
+        if (caps.torch) torchTrack = vTrack;
+      }
+    }
+
+    // Wait for video to be ready and play
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = async () => {
+        try {
+          await video.play();
+          resolve();
+        } catch(e) { reject(e); }
+      };
+      video.onerror = reject;
+    });
+
+    // Wait one more frame so dimensions are correct
+    await new Promise(r => requestAnimationFrame(r));
+
+    // Sync canvas sizes to actual video dimensions
+    syncSizes();
+
+    statusEl.textContent = 'Camera ready. Scanning...';
+    document.body.classList.add('scanning');
+    startOCRLoop();
+  }
+
+  function syncSizes() {
+    const vw = video.videoWidth  || 640;
+    const vh = video.videoHeight || 480;
+
+    // Set wrapper height to match video aspect ratio at 100vw
+    const displayW = wrapper.offsetWidth;
+    const displayH = Math.round(displayW * vh / vw);
+    wrapper.style.height = displayH + 'px';
+    video.style.height = displayH + 'px';
+
+    overlay.width  = displayW;
+    overlay.height = displayH;
+    canvas.width   = vw;
+    canvas.height  = vh;
+  }
+
+  function switchCamera() {
+    usingRear = !usingRear;
+    torchOn = false;
+    document.getElementById('btn-torch').classList.remove('active');
+    startCamera(usingRear);
+  }
+
+  async function toggleTorch() {
+    if (!torchTrack) {
+      statusEl.textContent = 'Torch not supported on this device.';
+      return;
+    }
+    torchOn = !torchOn;
+    try {
+      await torchTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+      document.getElementById('btn-torch').classList.toggle('active', torchOn);
+    } catch(e) {
+      statusEl.textContent = 'Could not toggle torch.';
+    }
+  }
+
+  function togglePause() {
+    paused = !paused;
+    const btn = document.getElementById('btn-pause');
+    btn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+    if (!paused) statusEl.textContent = 'Scanning...';
+    else { statusEl.textContent = 'Paused.'; document.body.classList.remove('scanning'); }
+  }
+
+  // ─── OCR LOOP ─────────────────────────────────────────────────────────────
+
+  function startOCRLoop() {
+    if (ocrInterval) clearInterval(ocrInterval);
+    ocrInterval = setInterval(readDigits, 2200);
+    readDigits(); // run immediately
+  }
+
+  async function readDigits() {
+    if (processing || paused) return;
+    if (!video.videoWidth || video.readyState < 2) return;
+
+    processing = true;
+    statusEl.textContent = 'Scanning';
+    document.body.classList.add('scanning');
+
+    try {
+      // Draw video frame to hidden canvas
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+
+      // Grayscale conversion — improves OCR accuracy
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imageData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const g = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
+        d[i] = d[i+1] = d[i+2] = g;
+      }
+      ctx.putImageData(imageData, 0, 0);
+     // OCR
+      const result = await Tesseract.recognize(canvas, 'eng', {
+        tessedit_char_whitelist: '0123456789.',
+        tessedit_pageseg_mode: '11', // SPARSE_TEXT — better for single numbers
+      });
+
+      const text = result.data.text.trim();
+      outputEl.textContent = text || '—';
+
+      // Bounding boxes
+      syncSizes(); // re-sync in case orientation changed
+      ctxOv.clearRect(0, 0, overlay.width, overlay.height);
+      boxes = [];
+
+      const scaleX = overlay.width  / canvas.width;
+      const scaleY = overlay.height / canvas.height;
+
+      if (result.data.words) {
+        result.data.words.forEach(word => {
+          const wText = word.text.trim();
+          if (/^[0-9.]+$/.test(wText)) {
+            const { x0, y0, x1, y1 } = word.bbox;
+            const sx = x0 * scaleX;
+            const sy = y0 * scaleY;
+            const sw = (x1 - x0) * scaleX;
+            const sh = (y1 - y0) * scaleY;
+
+            boxes.push({ text: wText, x: sx, y: sy, width: sw, height: sh });
+
+            ctxOv.strokeStyle = '#00ff88';
+            ctxOv.lineWidth = 2;
+            ctxOv.strokeRect(sx, sy, sw, sh);
+
+            ctxOv.fillStyle = '#00ff88';
+            ctxOv.font = '13px Courier New';
+            ctxOv.fillText(wText, sx + 2, sy > 14 ? sy - 4 : sy + sh + 14);
+          }
+        });
+      }
+
+      statusEl.textContent = boxes.length
+        ? `Found ${boxes.length} number${boxes.length > 1 ? 's' : ''} — tap to select`
+        : 'No numbers detected';
+      document.body.classList.remove('scanning');
+
+    } catch (e) {
+      statusEl.textContent = 'OCR error. Retrying...';
+      console.error(e);
+    }
+
+    processing = false;
+  }
+
+  // ─── TAP / CLICK SELECTION ────────────────────────────────────────────────
+
+  function handleTap(clientX, clientY) {
+    const rect = overlay.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+
+    let hit = false;
+    boxes.forEach(box => {
+      if (x >= box.x && x <= box.x + box.width &&
+          y >= box.y && y <= box.y + box.height) {
+        selectedEl.textContent = '► Selected: ' + box.text;
+        // Flash the box
+        ctxOv.strokeStyle = '#ffff00';
+        ctxOv.lineWidth = 3;
+        ctxOv.strokeRect(box.x, box.y, box.width, box.height);
+        setTimeout(() => { ctxOv.strokeStyle = '#00ff88'; ctxOv.lineWidth = 2; ctxOv.strokeRect(box.x, box.y, box.width, box.height); }, 300);
+        hit = true;
+      }
+    });
+    if (!hit) selectedEl.textContent = '';
+  }
+
+  overlay.addEventListener('click', e => handleTap(e.clientX, e.clientY));
+  overlay.addEventListener('touchend', e => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    handleTap(t.clientX, t.clientY);
+  }, { passive: false });
+
+  // ─── ORIENTATION CHANGE ───────────────────────────────────────────────────
+  window.addEventListener('resize', () => {
+    syncSizes();
+    ctxOv.clearRect(0, 0, overlay.width, overlay.height);
+    boxes = [];
+  });
+
+  // ─── INIT ─────────────────────────────────────────────────────────────────
+  startCamera(true);
+</script>
+</body>
+</html>
