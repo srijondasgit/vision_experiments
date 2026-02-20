@@ -3,377 +3,302 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Digital Display OCR</title>
+<title>Meter OCR</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
-  *, *::before, *::after { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
 
-  body {
-    margin: 0;
-    padding: 0;
-    background: #0a0a0a;
-    color: #e0e0e0;
-    font-family: 'Courier New', monospace;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
+body {
+  margin: 0; padding: 0;
+  background: #0a0a0a;
+  color: #e0e0e0;
+  font-family: 'Courier New', monospace;
+  min-height: 100vh;
+  display: flex; flex-direction: column; align-items: center;
+}
 
-  /* ── PAGE 1: SETUP ── */
-  #setup-page {
-    width: 100%;
-    max-width: 480px;
-    padding: 20px 16px 30px;
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-  }
+/* ─── SHARED ─────────────────────────────────────────────── */
+.page { width: 100%; max-width: 480px; display: none; flex-direction: column; }
+.page.active { display: flex; }
 
-  #setup-page h1 {
-    font-size: 1rem;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: #aaffcc;
-    margin: 0 0 4px;
-    text-align: center;
-  }
+.page-title {
+  font-size: 0.85rem; letter-spacing: 0.2em; text-transform: uppercase;
+  color: #aaffcc; text-align: center; margin: 12px 0 2px;
+}
+.page-sub {
+  font-size: 0.68rem; color: #446655; text-align: center;
+  margin-bottom: 14px; letter-spacing: 0.04em; padding: 0 16px;
+}
 
-  #setup-page .sub {
-    font-size: 0.68rem;
-    color: #557766;
-    text-align: center;
-    margin-bottom: 20px;
-    letter-spacing: 0.05em;
-  }
+/* Generic button base */
+.btn {
+  background: #1a2e1a; border: 2px solid #00cc66; color: #00ff88;
+  font-family: 'Courier New', monospace; font-weight: bold;
+  border-radius: 6px; cursor: pointer; letter-spacing: 0.05em;
+  text-transform: uppercase; transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  text-shadow: 0 0 8px #00ff8866;
+}
+.btn:active { background: #00ff8833; border-color: #00ff88; }
+.btn.active { background: #00441a; border-color: #00ff88; color: #fff; }
+.btn-sm  { padding: 8px 10px; font-size: 0.75rem; }
+.btn-md  { padding: 11px 8px; font-size: 0.8rem; }
+.btn-lg  { width: 100%; padding: 14px; font-size: 0.88rem; margin-top: 16px; }
+.btn-red { border-color: #cc3333; color: #ff6666; background: #2a0a0a; }
+.btn-red:active { background: #ff333322; }
+.btn-amber { border-color: #cc8800; color: #ffaa00; background: #1a1400; }
+.btn-amber:active { background: #ffaa0022; }
 
-  .meter-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 0;
-    border-bottom: 1px solid #1a2e1a;
-  }
+/* ─── PAGE 1: METER SETUP ────────────────────────────────── */
+#pg-setup { padding: 0 16px 24px; }
 
-  .meter-num {
-    font-size: 0.7rem;
-    color: #336644;
-    width: 22px;
-    text-align: right;
-    flex-shrink: 0;
-    font-weight: bold;
-  }
+.meter-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid #152215;
+}
+.meter-num { font-size: 0.7rem; color: #336644; width: 20px; text-align: right; flex-shrink: 0; }
+.meter-input {
+  flex: 1; background: #101e10; border: 1px solid #224422; border-radius: 4px;
+  color: #00ff88; font-family: 'Courier New', monospace; font-size: 0.88rem;
+  padding: 7px 10px; outline: none; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.meter-input:focus { border-color: #00cc66; background: #152215; }
+.meter-input::placeholder { color: #2a4a2a; text-transform: none; }
 
-  .meter-input {
-    flex: 1;
-    background: #101e10;
-    border: 1px solid #224422;
-    border-radius: 4px;
-    color: #00ff88;
-    font-family: 'Courier New', monospace;
-    font-size: 0.9rem;
-    padding: 8px 10px;
-    outline: none;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    transition: border-color 0.2s;
-  }
+/* ─── PAGE 2: SESSION NAME ───────────────────────────────── */
+#pg-session { padding: 0 16px 24px; }
 
-  .meter-input:focus {
-    border-color: #00cc66;
-    background: #152215;
-  }
+.session-opts { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
 
-  .meter-input::placeholder {
-    color: #2a4a2a;
-    text-transform: none;
-  }
+.opt-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px; border: 2px solid #224422; border-radius: 6px;
+  cursor: pointer; background: #101e10; transition: border-color 0.15s;
+}
+.opt-row:active, .opt-row.selected { border-color: #00cc66; background: #152215; }
+.opt-radio {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid #336644; background: transparent; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.opt-row.selected .opt-radio { border-color: #00ff88; background: #00ff88; }
+.opt-label { font-size: 0.82rem; color: #aaffcc; font-weight: bold; }
+.opt-val   { font-size: 0.72rem; color: #557766; margin-top: 2px; }
 
-  #start-btn {
-    margin-top: 24px;
-    width: 100%;
-    padding: 14px;
-    background: #0a2a0a;
-    border: 2px solid #00cc66;
-    color: #00ff88;
-    font-family: 'Courier New', monospace;
-    font-size: 0.9rem;
-    font-weight: bold;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    cursor: pointer;
-    border-radius: 6px;
-    transition: background 0.2s;
-  }
+#custom-name-wrap { display: none; margin-top: 10px; }
+#custom-name {
+  width: 100%; background: #101e10; border: 2px solid #224422; border-radius: 6px;
+  color: #00ff88; font-family: 'Courier New', monospace; font-size: 1rem;
+  padding: 10px 12px; outline: none; letter-spacing: 0.05em; text-transform: uppercase;
+}
+#custom-name:focus { border-color: #00cc66; }
 
-  #start-btn:active { background: #00ff8833; }
+.session-history { margin-top: 18px; }
+.session-history-title { font-size: 0.65rem; color: #336644; letter-spacing: 0.1em; margin-bottom: 8px; }
+.session-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; margin: 3px; border: 1px solid #224422;
+  border-radius: 12px; background: #101e10; cursor: pointer;
+  font-size: 0.72rem; color: #557766;
+}
+.session-chip:active { border-color: #00cc66; color: #00ff88; }
 
-  /* ── PAGE 2: OCR ── */
-  #ocr-page { display: none; width: 100%; flex-direction: column; align-items: center; }
+/* ─── PAGE 3: OCR ────────────────────────────────────────── */
+#pg-ocr { align-items: center; max-width: 100%; }
 
-  /* Header */
-  #ocr-header {
-    width: 100%;
-    max-width: 480px;
-    display: flex;
-    align-items: center;
-    padding: 8px 12px;
-    gap: 8px;
-    border-bottom: 1px solid #1a3a1a;
-    background: #0d1a0d;
-  }
+#ocr-header {
+  width: 100%; max-width: 480px;
+  display: flex; align-items: center; padding: 7px 10px; gap: 8px;
+  border-bottom: 1px solid #1a3a1a; background: #0d1a0d;
+}
+#back-ocr { flex-shrink: 0; }
+#session-label-display {
+  flex: 1; text-align: center; font-size: 0.78rem; color: #557766;
+  letter-spacing: 0.1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#meter-name-display {
+  flex: 1; text-align: center; font-size: 0.95rem; font-weight: bold;
+  color: #00ff88; letter-spacing: 0.15em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#meter-counter { font-size: 0.65rem; color: #336644; flex-shrink: 0; }
 
-  #back-btn {
-    background: transparent;
-    border: 1px solid #336644;
-    color: #557766;
-    font-family: 'Courier New', monospace;
-    font-size: 0.7rem;
-    padding: 5px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    flex-shrink: 0;
-    -webkit-tap-highlight-color: transparent;
-  }
-  #back-btn:active { background: #00ff8822; }
+#meter-nav {
+  display: flex; gap: 5px; padding: 7px 10px;
+  width: 100%; max-width: 480px; justify-content: center; flex-wrap: wrap;
+  background: #0a0a0a;
+}
+.meter-dot {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px solid #224422; background: #101e10; color: #336644;
+  font-family: 'Courier New', monospace; font-size: 0.65rem; font-weight: bold;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; flex-shrink: 0; padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.meter-dot.active    { border-color: #00cc66; background: #152215; color: #00ff88; }
+.meter-dot.has-value { border-color: #00884a; color: #00cc66; }
+.meter-dot.active.has-value { border-color: #00ff88; background: #152215; color: #00ff88; }
 
-  #meter-name-display {
-    flex: 1;
-    text-align: center;
-    font-size: 0.95rem;
-    font-weight: bold;
-    color: #00ff88;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+/* Camera */
+#cam-wrapper {
+  position: relative; width: 100vw; max-width: 480px;
+}
+#video { display: block; width: 100%; height: 100%; object-fit: cover; background: #000; }
+#overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: auto; touch-action: none;
+}
 
-  #meter-counter {
-    font-size: 0.65rem;
-    color: #336644;
-    flex-shrink: 0;
-    letter-spacing: 0.05em;
-  }
+#controls {
+  display: flex; gap: 8px; padding: 9px 12px;
+  width: 100%; max-width: 480px;
+}
+#controls button { flex: 1; padding: 13px 4px; font-size: 0.8rem; }
 
-  /* Meter nav dots */
-  #meter-nav {
-    display: flex;
-    gap: 6px;
-    padding: 8px 12px;
-    width: 100%;
-    max-width: 480px;
-    justify-content: center;
-    flex-wrap: wrap;
-    background: #0a0a0a;
-  }
+#output-box {
+  width: 100%; max-width: 480px; padding: 10px 14px 14px;
+  border-top: 2px solid #00cc6644; background: #0f1f0f;
+}
+#status { font-size: 0.75rem; color: #88cc99; margin-bottom: 8px; min-height: 1.2em; }
+#output-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  background: #152215; border: 2px solid #00cc66; border-radius: 6px; padding: 7px 10px;
+}
+#output-label { font-size: 0.62rem; color: #55aa77; white-space: nowrap; font-weight: bold; }
+#output {
+  flex: 1; font-size: 1.5rem; font-weight: bold; color: #00ff88;
+  background: transparent; border: none; outline: none;
+  font-family: 'Courier New', monospace; min-width: 0; padding: 0 4px;
+  caret-color: #00ff88;
+}
+#output::placeholder { color: #336644; font-size: 1.1rem; }
+#copy-btn { flex: none; padding: 7px 11px; font-size: 0.75rem; white-space: nowrap; }
+#hint { font-size: 0.7rem; color: #668877; min-height: 1em; padding: 1px 2px; }
 
-  .meter-dot {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    border: 2px solid #224422;
-    background: #101e10;
-    color: #336644;
-    font-family: 'Courier New', monospace;
-    font-size: 0.65rem;
-    font-weight: bold;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.15s;
-    -webkit-tap-highlight-color: transparent;
-    flex-shrink: 0;
-  }
+/* Done session button */
+#done-session-wrap {
+  width: 100%; max-width: 480px; padding: 8px 12px;
+  background: #0a0a0a; border-top: 1px solid #152215;
+}
 
-  .meter-dot.active {
-    border-color: #00cc66;
-    background: #152215;
-    color: #00ff88;
-  }
+#canvas { display: none; }
 
-  .meter-dot.has-value {
-    border-color: #00884a;
-    color: #00cc66;
-  }
+.scanning #status::after { content: ''; animation: dots 1.2s infinite; }
+@keyframes dots {
+  0%   { content: '.'; }
+  33%  { content: '..'; }
+  66%  { content: '...'; }
+}
 
-  .meter-dot.active.has-value {
-    border-color: #00ff88;
-    background: #152215;
-    color: #00ff88;
-  }
+/* ─── PAGE 4: TABLE ──────────────────────────────────────── */
+#pg-table { padding: 0 0 30px; }
 
-  /* ── Camera ── */
-  #cam-wrapper {
-    position: relative;
-    width: 100vw;
-    max-width: 480px;
-  }
+#table-header {
+  width: 100%; display: flex; align-items: center;
+  padding: 8px 12px; gap: 8px;
+  border-bottom: 1px solid #1a3a1a; background: #0d1a0d;
+}
+#table-header .page-title { margin: 0; flex: 1; }
 
-  #video {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    background: #000;
-  }
+.tbl-wrap { width: 100%; overflow-x: auto; padding: 12px 0; }
 
-  #overlay {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    pointer-events: auto;
-    touch-action: none;
-  }
+table {
+  border-collapse: collapse; min-width: 100%;
+  font-size: 0.72rem; font-family: 'Courier New', monospace;
+}
+th, td {
+  border: 1px solid #1a3a1a; padding: 7px 10px;
+  text-align: center; white-space: nowrap;
+}
+th {
+  background: #0d1a0d; color: #00cc66; letter-spacing: 0.08em;
+  font-size: 0.65rem; text-transform: uppercase;
+}
+th.session-col { background: #0a1a0a; color: #557766; }
+td { color: #aaffcc; background: #0a0a0a; }
+td.session-name { color: #00cc66; font-weight: bold; text-align: left; background: #0d1a0d; }
+td.empty { color: #2a4a2a; }
 
-  /* ── Controls ── */
-  #controls {
-    display: flex;
-    gap: 8px;
-    padding: 10px 12px;
-    width: 100%;
-    max-width: 480px;
-  }
-
-  button {
-    flex: 1;
-    padding: 13px 4px;
-    background: #1a2e1a;
-    border: 2px solid #00cc66;
-    color: #00ff88;
-    font-family: 'Courier New', monospace;
-    font-size: 0.82rem;
-    font-weight: bold;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    cursor: pointer;
-    border-radius: 6px;
-    transition: background 0.15s, border-color 0.15s;
-    -webkit-tap-highlight-color: transparent;
-    text-shadow: 0 0 8px #00ff8866;
-  }
-
-  button:active { background: #00ff8833; border-color: #00ff88; }
-  button.active  { background: #00441a; border-color: #00ff88; color: #ffffff; }
-
-  /* ── Output box ── */
-  #output-box {
-    width: 100%;
-    max-width: 480px;
-    padding: 12px 14px 16px;
-    border-top: 2px solid #00cc6644;
-    background: #0f1f0f;
-  }
-
-  #status {
-    font-size: 0.78rem;
-    color: #88cc99;
-    margin-bottom: 10px;
-    min-height: 1.2em;
-    letter-spacing: 0.05em;
-  }
-
-  #output-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-    background: #152215;
-    border: 2px solid #00cc66;
-    border-radius: 6px;
-    padding: 8px 10px;
-  }
-
-  #output-label {
-    font-size: 0.65rem;
-    color: #55aa77;
-    white-space: nowrap;
-    letter-spacing: 0.12em;
-    font-weight: bold;
-  }
-
-  #output {
-    flex: 1;
-    font-size: 1.6rem;
-    font-weight: bold;
-    color: #00ff88;
-    background: transparent;
-    border: none;
-    outline: none;
-    font-family: 'Courier New', monospace;
-    min-width: 0;
-    padding: 0 4px;
-    caret-color: #00ff88;
-  }
-
-  #output::placeholder { color: #336644; font-size: 1.2rem; }
-
-  #copy-btn {
-    flex: none;
-    padding: 8px 12px;
-    font-size: 0.78rem;
-    font-weight: bold;
-    background: #0a2a0a;
-    border: 2px solid #00cc66;
-    color: #00ff88;
-    border-radius: 5px;
-    letter-spacing: 0;
-    white-space: nowrap;
-  }
-
-  #copy-btn:active, #copy-btn.copied {
-    background: #00ff8833;
-    border-color: #00ff88;
-    color: #ffffff;
-  }
-
-  #hint {
-    font-size: 0.72rem;
-    color: #668877;
-    min-height: 1.1em;
-    letter-spacing: 0.03em;
-    padding: 2px 2px;
-  }
-
-  #canvas { display: none; }
-
-  .scanning #status::after {
-    content: '';
-    animation: dots 1.2s infinite;
-  }
-
-  @keyframes dots {
-    0%   { content: '.'; }
-    33%  { content: '..'; }
-    66%  { content: '...'; }
-  }
+.tbl-actions {
+  display: flex; gap: 8px; padding: 0 12px; margin-top: 8px; flex-wrap: wrap;
+}
+.tbl-actions button { flex: 1; min-width: 120px; padding: 11px 6px; font-size: 0.75rem; }
 </style>
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════════════ -->
-<!--  PAGE 1: SETUP                                         -->
-<!-- ═══════════════════════════════════════════════════════ -->
-<div id="setup-page">
-  <h1>Meter Setup</h1>
-  <p class="sub">Enter a name (up to 10 chars) for each meter you want to read</p>
-
-  <div id="meter-list"></div>
-
-  <button id="start-btn" onclick="startOCR()">▶ Start Reading</button>
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE 1 — METER SETUP                                      -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page" id="pg-setup">
+  <div class="page-title">Meter Setup</div>
+  <p class="page-sub">Name each meter (max 10 chars). Blank slots are skipped.</p>
+  <div id="meter-list" style="padding:0 16px"></div>
+  <div style="padding:0 16px">
+    <button class="btn btn-lg" onclick="goToSession()">▶ Next: Set Reading Name</button>
+  </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════ -->
-<!--  PAGE 2: OCR                                           -->
-<!-- ═══════════════════════════════════════════════════════ -->
-<div id="ocr-page">
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE 2 — SESSION / READING NAME                          -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page" id="pg-session">
+  <div class="page-title">Reading Name</div>
+  <p class="page-sub">Choose how to label this set of readings</p>
+
+  <div class="session-opts">
+    <div class="opt-row" id="opt-24" onclick="selectOpt('24h')">
+      <div class="opt-radio"></div>
+      <div>
+        <div class="opt-label">24-hour time</div>
+        <div class="opt-val" id="val-24h">e.g. 14:00</div>
+      </div>
+    </div>
+    <div class="opt-row" id="opt-12" onclick="selectOpt('12h')">
+      <div class="opt-radio"></div>
+      <div>
+        <div class="opt-label">12-hour time</div>
+        <div class="opt-val" id="val-12h">e.g. 2:00 PM</div>
+      </div>
+    </div>
+    <div class="opt-row" id="opt-custom" onclick="selectOpt('custom')">
+      <div class="opt-radio"></div>
+      <div>
+        <div class="opt-label">Custom name</div>
+        <div class="opt-val">Enter any label</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="custom-name-wrap">
+    <input id="custom-name" type="text" maxlength="20" placeholder="TYPE LABEL..."
+           autocomplete="off" spellcheck="false"
+           oninput="this.value=this.value.toUpperCase()" />
+  </div>
+
+  <div class="session-history" id="session-history-wrap" style="display:none">
+    <div class="session-history-title">PREVIOUS SESSIONS — tap to view table</div>
+    <div id="session-chips"></div>
+  </div>
+
+  <div style="padding:0">
+    <button class="btn btn-lg" onclick="startReading()">▶ Start Reading</button>
+    <button class="btn btn-lg btn-amber" onclick="showTable()" id="btn-view-table" style="display:none;margin-top:8px">
+      ≡ View Results Table
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE 3 — OCR                                             -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page" id="pg-ocr">
 
   <div id="ocr-header">
-    <button id="back-btn" onclick="goBack()">◀ Setup</button>
+    <button class="btn btn-sm" id="back-ocr" onclick="goToSession()">◀ Back</button>
     <div id="meter-name-display">—</div>
-    <div id="meter-counter">1 / 10</div>
+    <div id="meter-counter">1/10</div>
   </div>
 
   <div id="meter-nav"></div>
@@ -384,9 +309,9 @@
   </div>
 
   <div id="controls">
-    <button id="btn-torch" onclick="toggleTorch()">⚡ Torch</button>
-    <button id="btn-cam"   onclick="switchCamera()">↩ Flip</button>
-    <button id="btn-pause" onclick="togglePause()">⏸ Pause</button>
+    <button class="btn" id="btn-torch" onclick="toggleTorch()">⚡ Torch</button>
+    <button class="btn" id="btn-cam"   onclick="switchCamera()">↩ Flip</button>
+    <button class="btn" id="btn-pause" onclick="togglePause()">⏸ Pause</button>
   </div>
 
   <div id="output-box">
@@ -394,480 +319,594 @@
     <div id="output-row">
       <span id="output-label">VALUE</span>
       <input id="output" type="text" placeholder="—" autocomplete="off" spellcheck="false" />
-      <button id="copy-btn" onclick="copyValue()">⎘ Copy</button>
+      <button class="btn btn-sm" id="copy-btn" onclick="copyValue()">⎘ Copy</button>
     </div>
-    <div id="hint">Tap a box on the camera to select a number</div>
+    <div id="hint">Tap a bounding box to lock a value</div>
   </div>
 
+  <div id="done-session-wrap">
+    <button class="btn btn-lg btn-amber" onclick="finishSession()">✓ Done — Save This Reading</button>
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE 4 — TABLE                                           -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page" id="pg-table">
+  <div id="table-header">
+    <button class="btn btn-sm" onclick="goToSession()">◀ Back</button>
+    <div class="page-title">Results</div>
+    <div style="width:60px"></div>
+  </div>
+  <div class="tbl-wrap">
+    <table id="results-table"></table>
+  </div>
+  <div class="tbl-actions">
+    <button class="btn btn-sm btn-amber" onclick="copyTableCSV()">⎘ Copy CSV</button>
+    <button class="btn btn-sm btn-red"   onclick="clearAllData()">✕ Clear All</button>
+  </div>
 </div>
 
 <canvas id="canvas"></canvas>
 
 <script>
-  // ═══════════════════════════════════════════════════════
-  //  METER STATE
-  // ═══════════════════════════════════════════════════════
-  const MAX_METERS = 10;
-  let meters       = [];   // [{ name, value }]
-  let currentMeter = 0;
+// ════════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════════
+const MAX_METERS = 10;
+let meterNames   = [];   // string[] — from setup page
+let sessions     = [];   // [{ name, readings: { meterName: value } }]
+let currentSession = null;  // { name, readings }
+let currentMeterIdx = 0;
+let sessionNameMode = '24h'; // '24h' | '12h' | 'custom'
 
-  // ─── Build setup inputs ────────────────────────────────
-  function buildSetupPage() {
-    const list = document.getElementById('meter-list');
-    list.innerHTML = '';
-    for (let i = 0; i < MAX_METERS; i++) {
-      const row = document.createElement('div');
-      row.className = 'meter-row';
-      row.innerHTML = `
-        <span class="meter-num">${i + 1}</span>
-        <input class="meter-input" id="m${i}" type="text"
-               maxlength="10" placeholder="Meter ${i + 1}"
-               autocomplete="off" spellcheck="false"
-               oninput="this.value=this.value.toUpperCase().slice(0,10)" />
-      `;
-      list.appendChild(row);
-    }
-    // Focus first input
-    setTimeout(() => document.getElementById('m0').focus(), 100);
+// OCR state
+let boxes = [], processing = false, paused = false;
+let currentStream = null, torchOn = false, usingRear = true;
+let ocrInterval = null, torchTrack = null, selectedBox = null;
+
+// ── DOM refs (safe to grab once after DOM ready)
+const video    = document.getElementById('video');
+const overlay  = document.getElementById('overlay');
+const ctxOv    = overlay.getContext('2d');
+const canvas   = document.getElementById('canvas');
+const ctx      = canvas.getContext('2d');
+const wrapper  = document.getElementById('cam-wrapper');
+const statusEl = document.getElementById('status');
+const outputEl = document.getElementById('output');
+const hintEl   = document.getElementById('hint');
+
+// ════════════════════════════════════════════════════════════
+//  PAGE NAVIGATION
+// ════════════════════════════════════════════════════════════
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ════════════════════════════════════════════════════════════
+//  PAGE 1 — METER SETUP
+// ════════════════════════════════════════════════════════════
+function buildSetupPage() {
+  const list = document.getElementById('meter-list');
+  list.innerHTML = '';
+  for (let i = 0; i < MAX_METERS; i++) {
+    const row = document.createElement('div');
+    row.className = 'meter-row';
+    row.innerHTML = `
+      <span class="meter-num">${i+1}</span>
+      <input class="meter-input" id="m${i}" type="text" maxlength="10"
+             placeholder="Meter ${i+1}" autocomplete="off" spellcheck="false"
+             oninput="this.value=this.value.toUpperCase().slice(0,10)" />
+    `;
+    list.appendChild(row);
+    // Re-fill saved names
+    if (meterNames[i]) setTimeout(() => { const el = document.getElementById('m'+i); if(el) el.value = meterNames[i]; }, 0);
   }
+  setTimeout(() => { const el = document.getElementById('m0'); if(el) el.focus(); }, 100);
+  showPage('pg-setup');
+}
 
-  // ─── Start OCR page ────────────────────────────────────
-  function startOCR() {
-    // Collect meter names — skip blank ones, fall back to "METER N"
-    meters = [];
-    for (let i = 0; i < MAX_METERS; i++) {
-      const val = (document.getElementById('m' + i).value || '').trim();
-      meters.push({ name: val || `METER ${i + 1}`, value: '' });
-    }
-
-    document.getElementById('setup-page').style.display = 'none';
-    const ocrPage = document.getElementById('ocr-page');
-    ocrPage.style.display = 'flex';
-
-    buildMeterNav();
-    switchMeter(0);
-    startCamera(true);
+function goToSession() {
+  // Save meter names from setup (only non-empty)
+  meterNames = [];
+  for (let i = 0; i < MAX_METERS; i++) {
+    const el = document.getElementById('m' + i);
+    const v  = el ? el.value.trim() : '';
+    if (v) meterNames.push(v);
   }
+  if (!meterNames.length) meterNames = ['METER 1'];
 
-  // ─── Back to setup ─────────────────────────────────────
-  function goBack() {
-    // Stop camera
-    if (currentStream) { currentStream.getTracks().forEach(t => t.stop()); currentStream = null; }
-    if (ocrInterval) { clearInterval(ocrInterval); ocrInterval = null; }
+  // Stop camera if coming back from OCR
+  stopCamera();
 
-    document.getElementById('ocr-page').style.display = 'none';
-    document.getElementById('setup-page').style.display = 'flex';
+  updateSessionPage();
+  showPage('pg-session');
+}
+
+// ════════════════════════════════════════════════════════════
+//  PAGE 2 — SESSION NAME
+// ════════════════════════════════════════════════════════════
+function getHourLabel(mode) {
+  const now = new Date();
+  // Snap to start of current hour
+  now.setMinutes(0, 0, 0);
+  if (mode === '24h') {
+    return now.getHours().toString().padStart(2,'0') + ':00';
+  } else {
+    let h = now.getHours();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return h + ':00 ' + ampm;
   }
+}
 
-  // ─── Build meter nav dots ──────────────────────────────
-  function buildMeterNav() {
-    const nav = document.getElementById('meter-nav');
-    nav.innerHTML = '';
-    meters.forEach((m, i) => {
-      const dot = document.createElement('button');
-      dot.className  = 'meter-dot';
-      dot.id         = `dot-${i}`;
-      dot.title      = m.name;
-      dot.textContent = i + 1;
-      dot.onclick    = () => switchMeter(i);
-      nav.appendChild(dot);
+function selectOpt(mode) {
+  sessionNameMode = mode;
+  ['24h','12h','custom'].forEach(m => {
+    document.getElementById('opt-' + (m==='24h'?'24':m==='12h'?'12':'custom'))
+      .classList.toggle('selected', m === mode);
+  });
+  document.getElementById('custom-name-wrap').style.display = mode === 'custom' ? 'block' : 'none';
+  if (mode === 'custom') setTimeout(() => document.getElementById('custom-name').focus(), 80);
+}
+
+function updateSessionPage() {
+  // Update live time previews
+  document.getElementById('val-24h').textContent = getHourLabel('24h');
+  document.getElementById('val-12h').textContent = getHourLabel('12h');
+
+  // Default select 24h
+  selectOpt(sessionNameMode);
+
+  // Show past sessions as chips + view table button
+  const histWrap = document.getElementById('session-history-wrap');
+  const chips    = document.getElementById('session-chips');
+  const viewBtn  = document.getElementById('btn-view-table');
+
+  if (sessions.length > 0) {
+    histWrap.style.display = 'block';
+    viewBtn.style.display  = 'block';
+    chips.innerHTML = '';
+    sessions.forEach((s, i) => {
+      const chip = document.createElement('span');
+      chip.className   = 'session-chip';
+      chip.textContent = s.name;
+      chip.onclick     = () => showTable();
+      chips.appendChild(chip);
     });
+  } else {
+    histWrap.style.display = 'none';
+    viewBtn.style.display  = 'none';
+  }
+}
+
+function getSessionName() {
+  if (sessionNameMode === '24h')   return getHourLabel('24h');
+  if (sessionNameMode === '12h')   return getHourLabel('12h');
+  const v = document.getElementById('custom-name').value.trim().toUpperCase();
+  return v || 'SESSION ' + (sessions.length + 1);
+}
+
+function startReading() {
+  const name = getSessionName();
+  // Init a fresh session object with empty readings
+  const readings = {};
+  meterNames.forEach(n => readings[n] = '');
+  currentSession = { name, readings };
+  currentMeterIdx = 0;
+
+  showPage('pg-ocr');
+  buildMeterNav();
+  switchMeter(0);
+  startCamera(usingRear);
+}
+
+// ════════════════════════════════════════════════════════════
+//  PAGE 3 — OCR
+// ════════════════════════════════════════════════════════════
+function buildMeterNav() {
+  const nav = document.getElementById('meter-nav');
+  nav.innerHTML = '';
+  meterNames.forEach((name, i) => {
+    const dot = document.createElement('button');
+    dot.className   = 'meter-dot';
+    dot.id          = `dot-${i}`;
+    dot.title       = name;
+    dot.textContent = i + 1;
+    dot.onclick     = () => switchMeter(i);
+    nav.appendChild(dot);
+  });
+}
+
+function switchMeter(idx) {
+  // Save current reading before switching
+  if (currentSession && meterNames[currentMeterIdx] !== undefined) {
+    currentSession.readings[meterNames[currentMeterIdx]] = outputEl.value.trim();
   }
 
-  // ─── Switch active meter ───────────────────────────────
-  function switchMeter(idx) {
-    // Save current value before switching
-    if (meters[currentMeter]) {
-      meters[currentMeter].value = outputEl ? outputEl.value : '';
-    }
+  currentMeterIdx = idx;
+  const name = meterNames[idx];
 
-    currentMeter = idx;
-    const m = meters[idx];
+  document.getElementById('meter-name-display').textContent = name;
+  document.getElementById('meter-counter').textContent = `${idx+1}/${meterNames.length}`;
 
-    // Update header
-    document.getElementById('meter-name-display').textContent = m.name;
-    document.getElementById('meter-counter').textContent = `${idx + 1} / ${meters.length}`;
+  // Update nav dots
+  meterNames.forEach((_, i) => {
+    const dot = document.getElementById(`dot-${i}`);
+    if (!dot) return;
+    const hasVal = currentSession && currentSession.readings[meterNames[i]];
+    dot.className = 'meter-dot' + (i===idx?' active':'') + (hasVal?' has-value':'');
+  });
 
-    // Update nav dots
-    meters.forEach((_, i) => {
-      const dot = document.getElementById(`dot-${i}`);
-      if (!dot) return;
-      dot.className = 'meter-dot' +
-        (i === idx ? ' active' : '') +
-        (meters[i].value ? ' has-value' : '');
+  // Restore value for this meter in current session
+  const savedVal = currentSession ? (currentSession.readings[name] || '') : '';
+  outputEl.value = savedVal;
+  delete outputEl.dataset.manualEdit;
+
+  // Reset scan state
+  selectedBox = null; boxes = [];
+  paused = false;
+  ctxOv.clearRect(0, 0, overlay.width, overlay.height);
+  statusEl.textContent = 'Scanning...';
+  hintEl.textContent   = 'Tap a bounding box to lock a value';
+  document.getElementById('btn-pause').textContent = '⏸ Pause';
+  document.body.classList.add('scanning');
+}
+
+function finishSession() {
+  // Save final meter value
+  if (currentSession && meterNames[currentMeterIdx] !== undefined) {
+    currentSession.readings[meterNames[currentMeterIdx]] = outputEl.value.trim();
+  }
+  // Push session
+  if (currentSession) {
+    // Replace existing session with same name if it exists
+    const idx = sessions.findIndex(s => s.name === currentSession.name);
+    if (idx >= 0) sessions[idx] = currentSession;
+    else sessions.push(currentSession);
+  }
+  currentSession = null;
+  stopCamera();
+  showTable();
+}
+
+// ════════════════════════════════════════════════════════════
+//  PAGE 4 — TABLE
+// ════════════════════════════════════════════════════════════
+function showTable() {
+  stopCamera();
+  buildTable();
+  showPage('pg-table');
+}
+
+function buildTable() {
+  const tbl = document.getElementById('results-table');
+  tbl.innerHTML = '';
+
+  if (!sessions.length) {
+    tbl.innerHTML = '<tr><td style="color:#336644;padding:20px">No readings yet.</td></tr>';
+    return;
+  }
+
+  // Header row: SESSION | meter1 | meter2 | ...
+  const thead = document.createElement('thead');
+  const hrow  = document.createElement('tr');
+  const thS   = document.createElement('th');
+  thS.textContent = 'SESSION';
+  thS.className   = 'session-col';
+  hrow.appendChild(thS);
+  meterNames.forEach(name => {
+    const th = document.createElement('th');
+    th.textContent = name;
+    hrow.appendChild(th);
+  });
+  thead.appendChild(hrow);
+  tbl.appendChild(thead);
+
+  // Body rows: one row per session
+  const tbody = document.createElement('tbody');
+  sessions.forEach(s => {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.className   = 'session-name';
+    td.textContent = s.name;
+    tr.appendChild(td);
+    meterNames.forEach(name => {
+      const td2 = document.createElement('td');
+      const v = s.readings[name] || '';
+      td2.textContent = v || '—';
+      if (!v) td2.className = 'empty';
+      tr.appendChild(td2);
     });
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+}
 
-    // Restore value for this meter
-    if (outputEl) {
-      outputEl.value = m.value || '';
-      delete outputEl.dataset.manualEdit;
+function copyTableCSV() {
+  if (!sessions.length) return;
+  let csv = 'SESSION,' + meterNames.join(',') + '\n';
+  sessions.forEach(s => {
+    csv += s.name + ',' + meterNames.map(n => s.readings[n] || '').join(',') + '\n';
+  });
+  navigator.clipboard.writeText(csv).catch(() => {});
+  const btn = event.target;
+  btn.textContent = '✓ Copied!';
+  setTimeout(() => btn.textContent = '⎘ Copy CSV', 1800);
+}
+
+function clearAllData() {
+  if (!confirm('Clear all sessions and readings?')) return;
+  sessions = [];
+  buildTable();
+}
+
+// ════════════════════════════════════════════════════════════
+//  CAMERA
+// ════════════════════════════════════════════════════════════
+function stopCamera() {
+  if (currentStream) { currentStream.getTracks().forEach(t => t.stop()); currentStream = null; }
+  if (ocrInterval)   { clearInterval(ocrInterval); ocrInterval = null; }
+  document.body.classList.remove('scanning');
+}
+
+async function startCamera(rear = true) {
+  stopCamera();
+  const constraints = {
+    video: {
+      facingMode: rear ? { ideal: 'environment' } : { ideal: 'user' },
+      width: { ideal: 1280 }, height: { ideal: 720 }
+    }, audio: false
+  };
+  try {
+    currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch(e) {
+    try { currentStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); }
+    catch(e2) { statusEl.textContent = 'Camera access denied.'; return; }
+  }
+  video.srcObject = currentStream;
+  torchTrack = null;
+  if (rear) {
+    const vt = currentStream.getVideoTracks()[0];
+    if (vt && typeof vt.getCapabilities === 'function') {
+      const caps = vt.getCapabilities();
+      if (caps.torch) torchTrack = vt;
     }
+  }
+  await new Promise((res, rej) => {
+    video.onloadedmetadata = async () => { try { await video.play(); res(); } catch(e){rej(e);} };
+    video.onerror = rej;
+  });
+  await new Promise(r => requestAnimationFrame(r));
+  syncSizes();
+  statusEl.textContent = 'Scanning...';
+  document.body.classList.add('scanning');
+  startOCRLoop();
+}
 
-    // Reset scan state for new meter
-    selectedBox = null;
+function syncSizes() {
+  const vw = video.videoWidth || 640, vh = video.videoHeight || 480;
+  const dw = wrapper.offsetWidth;
+  let dh = Math.round(dw * vh / vw);
+  const isPortrait = window.innerHeight > window.innerWidth;
+  const maxH = isPortrait ? Math.floor(window.innerHeight * 0.42) : Math.floor(window.innerHeight * 0.72);
+  if (dh > maxH) dh = maxH;
+  wrapper.style.height = dh + 'px';
+  video.style.height   = dh + 'px';
+  overlay.width  = dw; overlay.height = dh;
+  canvas.width   = vw; canvas.height  = vh;
+}
+
+function switchCamera() {
+  usingRear = !usingRear; torchOn = false;
+  selectedBox = null;
+  document.getElementById('btn-torch').classList.remove('active');
+  startCamera(usingRear);
+}
+
+async function toggleTorch() {
+  if (!torchTrack) { statusEl.textContent = 'Torch not supported.'; return; }
+  torchOn = !torchOn;
+  try {
+    await torchTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+    document.getElementById('btn-torch').classList.toggle('active', torchOn);
+  } catch(e) { statusEl.textContent = 'Could not toggle torch.'; }
+}
+
+function togglePause() {
+  paused = !paused;
+  const btn = document.getElementById('btn-pause');
+  btn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+  if (!paused) {
     boxes = [];
-    paused = false;
-    if (ctxOv) ctxOv.clearRect(0, 0, overlay.width, overlay.height);
-    if (statusEl) statusEl.textContent = 'Scanning...';
-    if (hintEl) hintEl.textContent = 'Tap a box on the camera to select a number';
-    document.getElementById('btn-pause').textContent = '⏸ Pause';
+    statusEl.textContent = 'Scanning...';
+    hintEl.textContent = selectedBox ? `Looking for "${selectedBox.text}"...` : 'Tap a bounding box to lock a value';
     document.body.classList.add('scanning');
+  } else {
+    statusEl.textContent = 'Paused.';
+    document.body.classList.remove('scanning');
   }
+}
 
-  // ═══════════════════════════════════════════════════════
-  //  OCR PAGE ELEMENTS (set after DOM ready)
-  // ═══════════════════════════════════════════════════════
-  const video      = document.getElementById('video');
-  const overlay    = document.getElementById('overlay');
-  const ctxOv      = overlay.getContext('2d');
-  const canvas     = document.getElementById('canvas');
-  const ctx        = canvas.getContext('2d');
-  const wrapper    = document.getElementById('cam-wrapper');
-  const statusEl   = document.getElementById('status');
-  const outputEl   = document.getElementById('output');
-  const hintEl     = document.getElementById('hint');
+// ════════════════════════════════════════════════════════════
+//  OCR LOOP
+// ════════════════════════════════════════════════════════════
+function startOCRLoop() {
+  if (ocrInterval) clearInterval(ocrInterval);
+  ocrInterval = setInterval(readDigits, 4200);
+  readDigits();
+}
 
-  let boxes        = [];
-  let processing   = false;
-  let paused       = false;
-  let currentStream = null;
-  let torchOn      = false;
-  let usingRear    = true;
-  let ocrInterval  = null;
-  let torchTrack   = null;
-  let selectedBox  = null;
+async function readDigits() {
+  if (processing || paused) return;
+  if (!video.videoWidth || video.readyState < 2) return;
+  processing = true;
+  statusEl.textContent = 'Scanning';
+  document.body.classList.add('scanning');
 
-  // ─── COPY ──────────────────────────────────────────────────────────────────
-  function copyValue() {
-    const val = outputEl.value.trim();
-    if (!val || val === '—') return;
-    navigator.clipboard.writeText(val).then(() => {
-      const btn = document.getElementById('copy-btn');
-      btn.textContent = '✓ Copied';
-      btn.classList.add('copied');
-      setTimeout(() => { btn.textContent = '⎘ Copy'; btn.classList.remove('copied'); }, 1500);
-    }).catch(() => {
-      // Fallback for browsers without clipboard API
-      outputEl.select();
-      document.execCommand('copy');
-    });
-  }
+  try {
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+    const id = ctx.getImageData(0,0,canvas.width,canvas.height);
+    const d = id.data;
+    for (let i=0;i<d.length;i+=4){ const g=d[i]*.299+d[i+1]*.587+d[i+2]*.114; d[i]=d[i+1]=d[i+2]=g; }
+    ctx.putImageData(id, 0, 0);
 
-  // ─── CAMERA ────────────────────────────────────────────────────────────────
-  async function startCamera(rear = true) {
-    if (currentStream) {
-      currentStream.getTracks().forEach(t => t.stop());
-      currentStream = null;
-    }
-
-    const constraints = {
-      video: {
-        facingMode: rear ? { ideal: 'environment' } : { ideal: 'user' },
-        width:  { ideal: 1280 },
-        height: { ideal: 720 }
-      },
-      audio: false
-    };
-
-    try {
-      currentStream = await navigator.mediaDevices.getUserMedia(constraints);
-    } catch (e) {
-      try {
-        currentStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      } catch (e2) {
-        statusEl.textContent = 'Camera access denied.';
-        return;
-      }
-    }
-
-    video.srcObject = currentStream;
-
-    torchTrack = null;
-    if (rear) {
-      const vTrack = currentStream.getVideoTracks()[0];
-      if (vTrack && typeof vTrack.getCapabilities === 'function') {
-        const caps = vTrack.getCapabilities();
-        if (caps.torch) torchTrack = vTrack;
-      }
-    }
-
-    await new Promise((resolve, reject) => {
-      video.onloadedmetadata = async () => {
-        try { await video.play(); resolve(); }
-        catch(e) { reject(e); }
-      };
-      video.onerror = reject;
+    const result = await Tesseract.recognize(canvas, 'eng', {
+      tessedit_char_whitelist: '0123456789.',
+      tessedit_pageseg_mode: '11',
     });
 
-    await new Promise(r => requestAnimationFrame(r));
     syncSizes();
-    statusEl.textContent = 'Camera ready. Scanning...';
-    document.body.classList.add('scanning');
-    startOCRLoop();
-  }
+    boxes = [];
+    const sx = overlay.width / canvas.width, sy = overlay.height / canvas.height;
 
-  function syncSizes() {
-    const vw = video.videoWidth  || 640;
-    const vh = video.videoHeight || 480;
-    const displayW = wrapper.offsetWidth;
-
-    // Uncapped height based on video aspect ratio
-    let displayH = Math.round(displayW * vh / vw);
-
-    // In portrait orientation, cap video height so controls + output
-    // are never pushed off screen. 42vh leaves enough room for buttons
-    // and the value field regardless of phone size.
-    const isPortrait = window.innerHeight > window.innerWidth;
-    const maxH = isPortrait
-      ? Math.floor(window.innerHeight * 0.42)
-      : Math.floor(window.innerHeight * 0.72);
-
-    if (displayH > maxH) displayH = maxH;
-
-    wrapper.style.height = displayH + 'px';
-    video.style.height   = displayH + 'px';
-    overlay.width  = displayW;
-    overlay.height = displayH;
-    canvas.width   = vw;
-    canvas.height  = vh;
-  }
-
-  function switchCamera() {
-    usingRear = !usingRear;
-    torchOn = false;
-    selectedBox = null;
-    document.getElementById('btn-torch').classList.remove('active');
-    startCamera(usingRear);
-  }
-
-  async function toggleTorch() {
-    if (!torchTrack) { statusEl.textContent = 'Torch not supported.'; return; }
-    torchOn = !torchOn;
-    try {
-      await torchTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
-      document.getElementById('btn-torch').classList.toggle('active', torchOn);
-    } catch(e) {
-      statusEl.textContent = 'Could not toggle torch.';
-    }
-  }
-
-  function togglePause() {
-    paused = !paused;
-    const btn = document.getElementById('btn-pause');
-    btn.textContent = paused ? '▶ Resume' : '⏸ Pause';
-    if (!paused) {
-      // Resume — keep selectedBox and keep overlay as-is so the
-      // highlighted box stays visible until the next scan redraws it.
-      boxes = [];
-      statusEl.textContent = 'Scanning...';
-      hintEl.textContent = selectedBox
-        ? `Looking for "${selectedBox.text}" again...`
-        : 'Tap a box on the camera to select a number';
-      document.body.classList.add('scanning');
-    } else {
-      statusEl.textContent = 'Paused.';
-      document.body.classList.remove('scanning');
-    }
-  }
-
-  // ─── OCR LOOP ──────────────────────────────────────────────────────────────
-  // Interval is 4200ms (original 2200ms + 2000ms extra as requested)
-  function startOCRLoop() {
-    if (ocrInterval) clearInterval(ocrInterval);
-    ocrInterval = setInterval(readDigits, 4200);
-    readDigits();
-  }
-
-  async function readDigits() {
-    if (processing || paused) return;
-    if (!video.videoWidth || video.readyState < 2) return;
-
-    processing = true;
-    statusEl.textContent = 'Scanning';
-    document.body.classList.add('scanning');
-
-    try {
-      canvas.width  = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0);
-
-      // Grayscale
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const d = imageData.data;
-      for (let i = 0; i < d.length; i += 4) {
-        const g = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
-        d[i] = d[i+1] = d[i+2] = g;
-      }
-      ctx.putImageData(imageData, 0, 0);
-
-      const result = await Tesseract.recognize(canvas, 'eng', {
-        tessedit_char_whitelist: '0123456789.',
-        tessedit_pageseg_mode: '11',
+    if (result.data.words) {
+      result.data.words.forEach(w => {
+        const t = w.text.trim();
+        if (/^[0-9.]+$/.test(t)) {
+          const {x0,y0,x1,y1} = w.bbox;
+          boxes.push({ text:t, x:x0*sx, y:y0*sy, width:(x1-x0)*sx, height:(y1-y0)*sy });
+        }
       });
-
-      syncSizes();
-      ctxOv.clearRect(0, 0, overlay.width, overlay.height);
-      boxes = [];
-
-      const scaleX = overlay.width  / canvas.width;
-      const scaleY = overlay.height / canvas.height;
-
-      if (result.data.words) {
-        result.data.words.forEach(word => {
-          const wText = word.text.trim();
-          if (/^[0-9.]+$/.test(wText)) {
-            const { x0, y0, x1, y1 } = word.bbox;
-            const sx = x0 * scaleX;
-            const sy = y0 * scaleY;
-            const sw = (x1 - x0) * scaleX;
-            const sh = (y1 - y0) * scaleY;
-            boxes.push({ text: wText, x: sx, y: sy, width: sw, height: sh });
-          }
-        });
-      }
-
-      // Re-draw all boxes; highlight the selected one if it still exists
-      redrawBoxes();
-
-      // If user had a selected box, try to match it by text to update the value field
-      if (selectedBox) {
-        const stillExists = boxes.find(b => b.text === selectedBox.text);
-        if (stillExists) {
-          // Only update if user hasn't manually edited the field
-          if (!outputEl.dataset.manualEdit) {
-            outputEl.value = stillExists.text;
-          }
-          selectedBox = stillExists;
-        }
-        // If it disappeared, keep last value — don't clear
-        statusEl.textContent = boxes.length
-          ? `${boxes.length} number${boxes.length > 1 ? 's' : ''} found — tap to change selection`
-          : 'Display lost — holding last value';
-      } else {
-        // Nothing selected yet — show hint
-        statusEl.textContent = boxes.length
-          ? `${boxes.length} number${boxes.length > 1 ? 's' : ''} found — tap a box to select`
-          : 'No numbers detected';
-        hintEl.textContent = boxes.length
-          ? 'Tap a highlighted box to lock onto that value'
-          : 'Tap a box on the camera to select a number';
-
-        // Do NOT auto-populate output — wait for user tap
-      }
-
-      document.body.classList.remove('scanning');
-
-    } catch (e) {
-      statusEl.textContent = 'OCR error. Retrying...';
-      console.error(e);
     }
 
-    processing = false;
-  }
+    redrawBoxes();
 
-  // ─── DRAW BOXES ────────────────────────────────────────────────────────────
-  function redrawBoxes() {
-    ctxOv.clearRect(0, 0, overlay.width, overlay.height);
-    boxes.forEach(box => {
-      const isSelected = selectedBox && box === selectedBox;
-      ctxOv.strokeStyle = isSelected ? '#ffff00' : '#00ff88';
-      ctxOv.lineWidth   = isSelected ? 3 : 2;
-      ctxOv.strokeRect(box.x, box.y, box.width, box.height);
-      ctxOv.fillStyle = isSelected ? '#ffff00' : '#00ff88';
-      ctxOv.font      = '13px Courier New';
-      ctxOv.fillText(box.text, box.x + 2, box.y > 14 ? box.y - 4 : box.y + box.height + 14);
-    });
-  }
-
-  // Draw just the selected box directly onto the overlay (used after pause)
-  function drawSelectedBox() {
-    if (!selectedBox) return;
-    ctxOv.strokeStyle = '#ffff00';
-    ctxOv.lineWidth   = 3;
-    ctxOv.strokeRect(selectedBox.x, selectedBox.y, selectedBox.width, selectedBox.height);
-    ctxOv.fillStyle = '#ffff00';
-    ctxOv.font      = '13px Courier New';
-    ctxOv.fillText(selectedBox.text, selectedBox.x + 2,
-      selectedBox.y > 14 ? selectedBox.y - 4 : selectedBox.y + selectedBox.height + 14);
-  }
-
-  // ─── TAP SELECTION ─────────────────────────────────────────────────────────
-  function handleTap(clientX, clientY) {
-    const rect = overlay.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-
-    let hit = false;
-    boxes.forEach(box => {
-      if (x >= box.x && x <= box.x + box.width &&
-          y >= box.y && y <= box.y + box.height) {
-
-        selectedBox = box;
-        outputEl.value = box.text;
-        delete outputEl.dataset.manualEdit;
-
-        // Auto-pause so the value stays frozen until user resumes
-        if (!paused) {
-          paused = true;
-          document.getElementById('btn-pause').textContent = '▶ Resume';
-          document.body.classList.remove('scanning');
-        }
-
-        // Clear overlay and redraw only the selected box in yellow
-        ctxOv.clearRect(0, 0, overlay.width, overlay.height);
-        drawSelectedBox();
-
-        hintEl.textContent = `Locked to "${box.text}" — tap ▶ Resume to scan again`;
-        statusEl.textContent = 'Paused — selection locked ✓';
-        hit = true;
+    if (selectedBox) {
+      const match = boxes.find(b => b.text === selectedBox.text);
+      if (match) {
+        if (!outputEl.dataset.manualEdit) outputEl.value = match.text;
+        selectedBox = match;
+        // Save to session
+        if (currentSession) currentSession.readings[meterNames[currentMeterIdx]] = outputEl.value.trim();
+        // Update dot
+        const dot = document.getElementById(`dot-${currentMeterIdx}`);
+        if (dot && outputEl.value.trim()) dot.classList.add('has-value');
       }
-    });
-
-    if (!hit && boxes.length === 0) {
-      // Tapped dead air with no boxes — do nothing, keep last value
+      statusEl.textContent = boxes.length ? `${boxes.length} number${boxes.length>1?'s':''} — locked on "${selectedBox.text}"` : 'Display lost — holding last value';
+    } else {
+      statusEl.textContent = boxes.length ? `${boxes.length} number${boxes.length>1?'s':''} — tap to select` : 'No numbers detected';
+      hintEl.textContent = boxes.length ? 'Tap a highlighted box to lock a value' : 'Tap a bounding box to lock a value';
     }
+    document.body.classList.remove('scanning');
+  } catch(e) {
+    statusEl.textContent = 'OCR error. Retrying...';
   }
+  processing = false;
+}
 
-  // Track if user manually edits the field so we don't overwrite their edit
-  outputEl.addEventListener('input', () => {
-    outputEl.dataset.manualEdit = '1';
-    hintEl.textContent = 'Manually edited — OCR updates paused for this value';
-    if (meters[currentMeter]) meters[currentMeter].value = outputEl.value;
+// ════════════════════════════════════════════════════════════
+//  DRAW BOXES
+// ════════════════════════════════════════════════════════════
+function redrawBoxes() {
+  ctxOv.clearRect(0, 0, overlay.width, overlay.height);
+  boxes.forEach(box => {
+    const isSel = box === selectedBox;
+    ctxOv.strokeStyle = isSel ? '#ffff00' : '#00ff88';
+    ctxOv.lineWidth   = isSel ? 3 : 2;
+    ctxOv.strokeRect(box.x, box.y, box.width, box.height);
+    ctxOv.fillStyle = isSel ? '#ffff00' : '#00ff88';
+    ctxOv.font = '13px Courier New';
+    ctxOv.fillText(box.text, box.x+2, box.y>14 ? box.y-4 : box.y+box.height+14);
   });
+}
 
-  outputEl.addEventListener('change', () => {
-    if (outputEl.value.trim() === '') {
+function drawSelectedBox() {
+  if (!selectedBox) return;
+  ctxOv.strokeStyle = '#ffff00'; ctxOv.lineWidth = 3;
+  ctxOv.strokeRect(selectedBox.x, selectedBox.y, selectedBox.width, selectedBox.height);
+  ctxOv.fillStyle = '#ffff00'; ctxOv.font = '13px Courier New';
+  ctxOv.fillText(selectedBox.text, selectedBox.x+2,
+    selectedBox.y>14 ? selectedBox.y-4 : selectedBox.y+selectedBox.height+14);
+}
+
+// ════════════════════════════════════════════════════════════
+//  TAP SELECTION
+// ════════════════════════════════════════════════════════════
+function handleTap(cx, cy) {
+  const rect = overlay.getBoundingClientRect();
+  const x = cx - rect.left, y = cy - rect.top;
+  let hit = false;
+  boxes.forEach(box => {
+    if (x>=box.x && x<=box.x+box.width && y>=box.y && y<=box.y+box.height) {
+      selectedBox    = box;
+      outputEl.value = box.text;
       delete outputEl.dataset.manualEdit;
-      selectedBox = null;
-      hintEl.textContent = 'Tap a box on the camera to select a number';
+      // Save to session
+      if (currentSession) currentSession.readings[meterNames[currentMeterIdx]] = box.text;
+      // Update dot
+      const dot = document.getElementById(`dot-${currentMeterIdx}`);
+      if (dot) dot.classList.add('has-value');
+
+      if (!paused) {
+        paused = true;
+        document.getElementById('btn-pause').textContent = '▶ Resume';
+        document.body.classList.remove('scanning');
+      }
+      ctxOv.clearRect(0, 0, overlay.width, overlay.height);
+      drawSelectedBox();
+      hintEl.textContent   = `Locked — tap ▶ Resume to scan again`;
+      statusEl.textContent = 'Paused — value locked ✓';
+      hit = true;
     }
-    if (meters[currentMeter]) meters[currentMeter].value = outputEl.value;
-    const dot = document.getElementById(`dot-${currentMeter}`);
-    if (dot) dot.classList.toggle('has-value', !!outputEl.value.trim());
   });
+}
 
-  overlay.addEventListener('click', e => handleTap(e.clientX, e.clientY));
-  overlay.addEventListener('touchend', e => {
-    e.preventDefault();
-    const t = e.changedTouches[0];
-    handleTap(t.clientX, t.clientY);
-  }, { passive: false });
+overlay.addEventListener('click', e => handleTap(e.clientX, e.clientY));
+overlay.addEventListener('touchend', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  handleTap(t.clientX, t.clientY);
+}, { passive: false });
 
-  // ─── RESIZE ────────────────────────────────────────────────────────────────
-  // resize covers most cases; orientationchange fires on Android
-  // with a small delay to let the browser finish rotating first
-  function onLayoutChange() {
-    setTimeout(() => {
-      syncSizes();
-      redrawBoxes();
-    }, 120);
+// ════════════════════════════════════════════════════════════
+//  OUTPUT FIELD LISTENERS
+// ════════════════════════════════════════════════════════════
+outputEl.addEventListener('input', () => {
+  outputEl.dataset.manualEdit = '1';
+  hintEl.textContent = 'Manually edited';
+  if (currentSession) currentSession.readings[meterNames[currentMeterIdx]] = outputEl.value.trim();
+});
+outputEl.addEventListener('change', () => {
+  if (!outputEl.value.trim()) {
+    delete outputEl.dataset.manualEdit;
+    selectedBox = null;
+    hintEl.textContent = 'Tap a bounding box to lock a value';
   }
+  if (currentSession) currentSession.readings[meterNames[currentMeterIdx]] = outputEl.value.trim();
+  const dot = document.getElementById(`dot-${currentMeterIdx}`);
+  if (dot) dot.classList.toggle('has-value', !!outputEl.value.trim());
+});
 
-  window.addEventListener('resize', onLayoutChange);
-  window.addEventListener('orientationchange', onLayoutChange);
+// ════════════════════════════════════════════════════════════
+//  COPY VALUE
+// ════════════════════════════════════════════════════════════
+function copyValue() {
+  const val = outputEl.value.trim();
+  if (!val) return;
+  navigator.clipboard.writeText(val).then(() => {
+    const btn = document.getElementById('copy-btn');
+    btn.textContent = '✓';
+    setTimeout(() => btn.textContent = '⎘ Copy', 1500);
+  }).catch(() => { outputEl.select(); document.execCommand('copy'); });
+}
 
-  // ─── INIT: show setup page first ───────────────────────────────────────────
-  buildSetupPage();
+// ════════════════════════════════════════════════════════════
+//  RESIZE / ORIENTATION
+// ════════════════════════════════════════════════════════════
+function onLayoutChange() {
+  setTimeout(() => { syncSizes(); redrawBoxes(); }, 120);
+}
+window.addEventListener('resize', onLayoutChange);
+window.addEventListener('orientationchange', onLayoutChange);
+
+// ════════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════════
+buildSetupPage();
 </script>
 </body>
 </html>
