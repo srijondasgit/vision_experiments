@@ -12,7 +12,7 @@
     margin: 0;
     padding: 0;
     background: #0a0a0a;
-    color: #00ff88;
+    color: #e0e0e0;
     font-family: 'Courier New', monospace;
     min-height: 100vh;
     display: flex;
@@ -21,19 +21,17 @@
   }
 
   h2 {
-    font-size: 1rem;
+    font-size: 0.85rem;
     letter-spacing: 0.2em;
     text-transform: uppercase;
-    margin: 12px 0 8px;
-    color: #00ff88;
-    opacity: 0.7;
+    margin: 10px 0 6px;
+    color: #aaffcc;
   }
 
   #cam-wrapper {
     position: relative;
     width: 100vw;
     max-width: 480px;
-    /* height set by JS to match video aspect ratio */
   }
 
   #video {
@@ -46,69 +44,133 @@
 
   #overlay {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
     pointer-events: auto;
     touch-action: none;
   }
 
+  /* ── Controls ── */
   #controls {
     display: flex;
-    gap: 10px;
-    padding: 10px 16px;
+    gap: 8px;
+    padding: 10px 12px;
     width: 100%;
     max-width: 480px;
   }
 
-button {
+  button {
     flex: 1;
-    padding: 10px 6px;
-    background: transparent;
-    border: 1px solid #00ff88;
+    padding: 13px 4px;
+    background: #1a2e1a;
+    border: 2px solid #00cc66;
     color: #00ff88;
     font-family: 'Courier New', monospace;
-    font-size: 0.75rem;
-    letter-spacing: 0.1em;
+    font-size: 0.82rem;
+    font-weight: bold;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
     cursor: pointer;
-    border-radius: 4px;
-    transition: background 0.2s;
+    border-radius: 6px;
+    transition: background 0.15s, border-color 0.15s;
     -webkit-tap-highlight-color: transparent;
+    /* Ensure text is always visible */
+    text-shadow: 0 0 8px #00ff8866;
   }
 
-  button:active, button.active {
+  button:active {
     background: #00ff8833;
+    border-color: #00ff88;
   }
 
+  button.active {
+    background: #00441a;
+    border-color: #00ff88;
+    color: #ffffff;
+  }
+
+  /* ── Output box ── */
   #output-box {
     width: 100%;
     max-width: 480px;
-    padding: 12px 16px;
-    border-top: 1px solid #00ff8833;
+    padding: 14px 14px 18px;
+    border-top: 2px solid #00cc6644;
+    background: #0f1f0f;
   }
 
   #status {
-    font-size: 0.7rem;
-    opacity: 0.5;
-    margin-bottom: 4px;
-    min-height: 1em;
+    font-size: 0.78rem;
+    color: #88cc99;
+    margin-bottom: 10px;
+    min-height: 1.2em;
+    letter-spacing: 0.05em;
+  }
+
+  /* Editable value row */
+  #output-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    background: #152215;
+    border: 2px solid #00cc66;
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+
+  #output-label {
+    font-size: 0.65rem;
+    color: #55aa77;
+    white-space: nowrap;
+    letter-spacing: 0.12em;
+    font-weight: bold;
   }
 
   #output {
-    font-size: 1.4rem;
+    flex: 1;
+    font-size: 1.6rem;
     font-weight: bold;
     color: #00ff88;
-    min-height: 2rem;
-    word-break: break-all;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-family: 'Courier New', monospace;
+    min-width: 0;
+    padding: 0 4px;
+    /* Force visible caret on mobile */
+    caret-color: #00ff88;
   }
 
-  #selected {
-    margin-top: 8px;
-    font-size: 1rem;
-    color: #ffff00;
-    min-height: 1.5rem;
+  #output::placeholder {
+    color: #336644;
+    font-size: 1.2rem;
+  }
+
+  #copy-btn {
+    flex: none;
+    padding: 8px 12px;
+    font-size: 0.78rem;
+    font-weight: bold;
+    background: #0a2a0a;
+    border: 2px solid #00cc66;
+    color: #00ff88;
+    border-radius: 5px;
+    letter-spacing: 0;
+    white-space: nowrap;
+  }
+
+  #copy-btn:active, #copy-btn.copied {
+    background: #00ff8833;
+    border-color: #00ff88;
+    color: #ffffff;
+  }
+
+  #hint {
+    font-size: 0.72rem;
+    color: #668877;
+    min-height: 1.1em;
+    letter-spacing: 0.03em;
+    padding: 2px 2px;
   }
 
   #canvas { display: none; }
@@ -142,22 +204,28 @@ button {
 
 <div id="output-box">
   <div id="status">Starting camera...</div>
-  <div id="output">—</div>
-  <div id="selected"></div>
+
+  <div id="output-row">
+    <span id="output-label">VALUE</span>
+    <input id="output" type="text" placeholder="—" autocomplete="off" spellcheck="false" />
+    <button id="copy-btn" onclick="copyValue()">⎘ Copy</button>
+  </div>
+
+  <div id="hint">Tap a box on the camera to select a number</div>
 </div>
 
 <canvas id="canvas"></canvas>
 
 <script>
-  const video    = document.getElementById('video');
-  const overlay  = document.getElementById('overlay');
-  const ctxOv   = overlay.getContext('2d');
-  const canvas   = document.getElementById('canvas');
-  const ctx      = canvas.getContext('2d');
-  const wrapper  = document.getElementById('cam-wrapper');
-  const statusEl = document.getElementById('status');
-  const outputEl = document.getElementById('output');
-  const selectedEl = document.getElementById('selected');
+  const video      = document.getElementById('video');
+  const overlay    = document.getElementById('overlay');
+  const ctxOv      = overlay.getContext('2d');
+  const canvas     = document.getElementById('canvas');
+  const ctx        = canvas.getContext('2d');
+  const wrapper    = document.getElementById('cam-wrapper');
+  const statusEl   = document.getElementById('status');
+  const outputEl   = document.getElementById('output');
+  const hintEl     = document.getElementById('hint');
 
   let boxes = [];
   let processing = false;
@@ -167,11 +235,26 @@ button {
   let usingRear = true;
   let ocrInterval = null;
   let torchTrack = null;
+  let selectedBox = null;  // tracks which box the user tapped
 
-  // ─── CAMERA ──────────────────────────────────────────────────────────────
+  // ─── COPY ──────────────────────────────────────────────────────────────────
+  function copyValue() {
+    const val = outputEl.value.trim();
+    if (!val || val === '—') return;
+    navigator.clipboard.writeText(val).then(() => {
+      const btn = document.getElementById('copy-btn');
+      btn.textContent = '✓ Copied';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = '⎘ Copy'; btn.classList.remove('copied'); }, 1500);
+    }).catch(() => {
+      // Fallback for browsers without clipboard API
+      outputEl.select();
+      document.execCommand('copy');
+    });
+  }
 
+  // ─── CAMERA ────────────────────────────────────────────────────────────────
   async function startCamera(rear = true) {
-    // Stop existing stream
     if (currentStream) {
       currentStream.getTracks().forEach(t => t.stop());
       currentStream = null;
@@ -185,10 +268,10 @@ button {
       },
       audio: false
     };
+
     try {
       currentStream = await navigator.mediaDevices.getUserMedia(constraints);
     } catch (e) {
-      // Fallback: any camera
       try {
         currentStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       } catch (e2) {
@@ -199,7 +282,6 @@ button {
 
     video.srcObject = currentStream;
 
-    // Grab torch track if rear
     torchTrack = null;
     if (rear) {
       const vTrack = currentStream.getVideoTracks()[0];
@@ -209,23 +291,16 @@ button {
       }
     }
 
-    // Wait for video to be ready and play
     await new Promise((resolve, reject) => {
       video.onloadedmetadata = async () => {
-        try {
-          await video.play();
-          resolve();
-        } catch(e) { reject(e); }
+        try { await video.play(); resolve(); }
+        catch(e) { reject(e); }
       };
       video.onerror = reject;
     });
 
-    // Wait one more frame so dimensions are correct
     await new Promise(r => requestAnimationFrame(r));
-
-    // Sync canvas sizes to actual video dimensions
     syncSizes();
-
     statusEl.textContent = 'Camera ready. Scanning...';
     document.body.classList.add('scanning');
     startOCRLoop();
@@ -234,13 +309,23 @@ button {
   function syncSizes() {
     const vw = video.videoWidth  || 640;
     const vh = video.videoHeight || 480;
-
-    // Set wrapper height to match video aspect ratio at 100vw
     const displayW = wrapper.offsetWidth;
-    const displayH = Math.round(displayW * vh / vw);
-    wrapper.style.height = displayH + 'px';
-    video.style.height = displayH + 'px';
 
+    // Uncapped height based on video aspect ratio
+    let displayH = Math.round(displayW * vh / vw);
+
+    // In portrait orientation, cap video height so controls + output
+    // are never pushed off screen. 42vh leaves enough room for buttons
+    // and the value field regardless of phone size.
+    const isPortrait = window.innerHeight > window.innerWidth;
+    const maxH = isPortrait
+      ? Math.floor(window.innerHeight * 0.42)
+      : Math.floor(window.innerHeight * 0.72);
+
+    if (displayH > maxH) displayH = maxH;
+
+    wrapper.style.height = displayH + 'px';
+    video.style.height   = displayH + 'px';
     overlay.width  = displayW;
     overlay.height = displayH;
     canvas.width   = vw;
@@ -250,15 +335,13 @@ button {
   function switchCamera() {
     usingRear = !usingRear;
     torchOn = false;
+    selectedBox = null;
     document.getElementById('btn-torch').classList.remove('active');
     startCamera(usingRear);
   }
 
   async function toggleTorch() {
-    if (!torchTrack) {
-      statusEl.textContent = 'Torch not supported on this device.';
-      return;
-    }
+    if (!torchTrack) { statusEl.textContent = 'Torch not supported.'; return; }
     torchOn = !torchOn;
     try {
       await torchTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
@@ -272,16 +355,27 @@ button {
     paused = !paused;
     const btn = document.getElementById('btn-pause');
     btn.textContent = paused ? '▶ Resume' : '⏸ Pause';
-    if (!paused) statusEl.textContent = 'Scanning...';
-    else { statusEl.textContent = 'Paused.'; document.body.classList.remove('scanning'); }
+    if (!paused) {
+      // Resuming — clear selection so scanning starts fresh
+      selectedBox = null;
+      delete outputEl.dataset.manualEdit;
+      ctxOv.clearRect(0, 0, overlay.width, overlay.height);
+      boxes = [];
+      statusEl.textContent = 'Scanning...';
+      hintEl.textContent = 'Tap a box on the camera to select a number';
+      document.body.classList.add('scanning');
+    } else {
+      statusEl.textContent = 'Paused.';
+      document.body.classList.remove('scanning');
+    }
   }
 
-  // ─── OCR LOOP ─────────────────────────────────────────────────────────────
-
+  // ─── OCR LOOP ──────────────────────────────────────────────────────────────
+  // Interval is 4200ms (original 2200ms + 2000ms extra as requested)
   function startOCRLoop() {
     if (ocrInterval) clearInterval(ocrInterval);
-    ocrInterval = setInterval(readDigits, 2200);
-    readDigits(); // run immediately
+    ocrInterval = setInterval(readDigits, 4200);
+    readDigits();
   }
 
   async function readDigits() {
@@ -293,12 +387,11 @@ button {
     document.body.classList.add('scanning');
 
     try {
-      // Draw video frame to hidden canvas
       canvas.width  = video.videoWidth;
       canvas.height = video.videoHeight;
       ctx.drawImage(video, 0, 0);
 
-      // Grayscale conversion — improves OCR accuracy
+      // Grayscale
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const d = imageData.data;
       for (let i = 0; i < d.length; i += 4) {
@@ -306,17 +399,13 @@ button {
         d[i] = d[i+1] = d[i+2] = g;
       }
       ctx.putImageData(imageData, 0, 0);
-     // OCR
+
       const result = await Tesseract.recognize(canvas, 'eng', {
         tessedit_char_whitelist: '0123456789.',
-        tessedit_pageseg_mode: '11', // SPARSE_TEXT — better for single numbers
+        tessedit_pageseg_mode: '11',
       });
 
-      const text = result.data.text.trim();
-      outputEl.textContent = text || '—';
-
-      // Bounding boxes
-      syncSizes(); // re-sync in case orientation changed
+      syncSizes();
       ctxOv.clearRect(0, 0, overlay.width, overlay.height);
       boxes = [];
 
@@ -332,23 +421,40 @@ button {
             const sy = y0 * scaleY;
             const sw = (x1 - x0) * scaleX;
             const sh = (y1 - y0) * scaleY;
-
             boxes.push({ text: wText, x: sx, y: sy, width: sw, height: sh });
-
-            ctxOv.strokeStyle = '#00ff88';
-            ctxOv.lineWidth = 2;
-            ctxOv.strokeRect(sx, sy, sw, sh);
-
-            ctxOv.fillStyle = '#00ff88';
-            ctxOv.font = '13px Courier New';
-            ctxOv.fillText(wText, sx + 2, sy > 14 ? sy - 4 : sy + sh + 14);
           }
         });
       }
 
-      statusEl.textContent = boxes.length
-        ? `Found ${boxes.length} number${boxes.length > 1 ? 's' : ''} — tap to select`
-        : 'No numbers detected';
+      // Re-draw all boxes; highlight the selected one if it still exists
+      redrawBoxes();
+
+      // If user had a selected box, try to match it by text to update the value field
+      if (selectedBox) {
+        const stillExists = boxes.find(b => b.text === selectedBox.text);
+        if (stillExists) {
+          // Only update if user hasn't manually edited the field
+          if (!outputEl.dataset.manualEdit) {
+            outputEl.value = stillExists.text;
+          }
+          selectedBox = stillExists;
+        }
+        // If it disappeared, keep last value — don't clear
+        statusEl.textContent = boxes.length
+          ? `${boxes.length} number${boxes.length > 1 ? 's' : ''} found — tap to change selection`
+          : 'Display lost — holding last value';
+      } else {
+        // Nothing selected yet — show hint
+        statusEl.textContent = boxes.length
+          ? `${boxes.length} number${boxes.length > 1 ? 's' : ''} found — tap a box to select`
+          : 'No numbers detected';
+        hintEl.textContent = boxes.length
+          ? 'Tap a highlighted box to lock onto that value'
+          : 'Tap a box on the camera to select a number';
+
+        // Do NOT auto-populate output — wait for user tap
+      }
+
       document.body.classList.remove('scanning');
 
     } catch (e) {
@@ -359,8 +465,22 @@ button {
     processing = false;
   }
 
-  // ─── TAP / CLICK SELECTION ────────────────────────────────────────────────
+  // ─── DRAW BOXES ────────────────────────────────────────────────────────────
+  function redrawBoxes() {
+    ctxOv.clearRect(0, 0, overlay.width, overlay.height);
+    boxes.forEach(box => {
+      const isSelected = selectedBox && box.text === selectedBox.text &&
+                         Math.abs(box.x - selectedBox.x) < 20;
+      ctxOv.strokeStyle = isSelected ? '#ffff00' : '#00ff88';
+      ctxOv.lineWidth   = isSelected ? 3 : 2;
+      ctxOv.strokeRect(box.x, box.y, box.width, box.height);
+      ctxOv.fillStyle = isSelected ? '#ffff00' : '#00ff88';
+      ctxOv.font      = '13px Courier New';
+      ctxOv.fillText(box.text, box.x + 2, box.y > 14 ? box.y - 4 : box.y + box.height + 14);
+    });
+  }
 
+  // ─── TAP SELECTION ─────────────────────────────────────────────────────────
   function handleTap(clientX, clientY) {
     const rect = overlay.getBoundingClientRect();
     const x = clientX - rect.left;
@@ -370,17 +490,44 @@ button {
     boxes.forEach(box => {
       if (x >= box.x && x <= box.x + box.width &&
           y >= box.y && y <= box.y + box.height) {
-        selectedEl.textContent = '► Selected: ' + box.text;
-        // Flash the box
-        ctxOv.strokeStyle = '#ffff00';
-        ctxOv.lineWidth = 3;
-        ctxOv.strokeRect(box.x, box.y, box.width, box.height);
-        setTimeout(() => { ctxOv.strokeStyle = '#00ff88'; ctxOv.lineWidth = 2; ctxOv.strokeRect(box.x, box.y, box.width, box.height); }, 300);
+
+        selectedBox = box;
+        outputEl.value = box.text;
+        delete outputEl.dataset.manualEdit;
+
+        // Auto-pause so the value stays frozen until user resumes
+        if (!paused) {
+          paused = true;
+          document.getElementById('btn-pause').textContent = '▶ Resume';
+          document.body.classList.remove('scanning');
+        }
+
+        hintEl.textContent = `Locked to "${box.text}" — tap ▶ Resume to scan again`;
+        statusEl.textContent = 'Paused — selection locked ✓';
+        redrawBoxes();
         hit = true;
       }
     });
-    if (!hit) selectedEl.textContent = '';
+
+    if (!hit && boxes.length === 0) {
+      // Tapped dead air with no boxes — do nothing, keep last value
+    }
   }
+
+  // Track if user manually edits the field so we don't overwrite their edit
+  outputEl.addEventListener('input', () => {
+    outputEl.dataset.manualEdit = '1';
+    hintEl.textContent = 'Manually edited — OCR updates paused for this value';
+  });
+
+  // Clear manual edit flag when user clears the field entirely
+  outputEl.addEventListener('change', () => {
+    if (outputEl.value.trim() === '') {
+      delete outputEl.dataset.manualEdit;
+      selectedBox = null;
+      hintEl.textContent = 'Tap a box on the camera to select a number';
+    }
+  });
 
   overlay.addEventListener('click', e => handleTap(e.clientX, e.clientY));
   overlay.addEventListener('touchend', e => {
@@ -389,14 +536,20 @@ button {
     handleTap(t.clientX, t.clientY);
   }, { passive: false });
 
-  // ─── ORIENTATION CHANGE ───────────────────────────────────────────────────
-  window.addEventListener('resize', () => {
-    syncSizes();
-    ctxOv.clearRect(0, 0, overlay.width, overlay.height);
-    boxes = [];
-  });
+  // ─── RESIZE ────────────────────────────────────────────────────────────────
+  // resize covers most cases; orientationchange fires on Android
+  // with a small delay to let the browser finish rotating first
+  function onLayoutChange() {
+    setTimeout(() => {
+      syncSizes();
+      redrawBoxes();
+    }, 120);
+  }
 
-  // ─── INIT ─────────────────────────────────────────────────────────────────
+  window.addEventListener('resize', onLayoutChange);
+  window.addEventListener('orientationchange', onLayoutChange);
+
+  // ─── INIT ──────────────────────────────────────────────────────────────────
   startCamera(true);
 </script>
 </body>
