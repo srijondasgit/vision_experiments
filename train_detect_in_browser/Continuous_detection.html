@@ -356,13 +356,13 @@
     const btn = document.getElementById('btn-pause');
     btn.textContent = paused ? '▶ Resume' : '⏸ Pause';
     if (!paused) {
-      // Resuming — clear selection so scanning starts fresh
-      selectedBox = null;
-      delete outputEl.dataset.manualEdit;
-      ctxOv.clearRect(0, 0, overlay.width, overlay.height);
+      // Resume — keep selectedBox and keep overlay as-is so the
+      // highlighted box stays visible until the next scan redraws it.
       boxes = [];
       statusEl.textContent = 'Scanning...';
-      hintEl.textContent = 'Tap a box on the camera to select a number';
+      hintEl.textContent = selectedBox
+        ? `Looking for "${selectedBox.text}" again...`
+        : 'Tap a box on the camera to select a number';
       document.body.classList.add('scanning');
     } else {
       statusEl.textContent = 'Paused.';
@@ -469,8 +469,7 @@
   function redrawBoxes() {
     ctxOv.clearRect(0, 0, overlay.width, overlay.height);
     boxes.forEach(box => {
-      const isSelected = selectedBox && box.text === selectedBox.text &&
-                         Math.abs(box.x - selectedBox.x) < 20;
+      const isSelected = selectedBox && box === selectedBox;
       ctxOv.strokeStyle = isSelected ? '#ffff00' : '#00ff88';
       ctxOv.lineWidth   = isSelected ? 3 : 2;
       ctxOv.strokeRect(box.x, box.y, box.width, box.height);
@@ -478,6 +477,18 @@
       ctxOv.font      = '13px Courier New';
       ctxOv.fillText(box.text, box.x + 2, box.y > 14 ? box.y - 4 : box.y + box.height + 14);
     });
+  }
+
+  // Draw just the selected box directly onto the overlay (used after pause)
+  function drawSelectedBox() {
+    if (!selectedBox) return;
+    ctxOv.strokeStyle = '#ffff00';
+    ctxOv.lineWidth   = 3;
+    ctxOv.strokeRect(selectedBox.x, selectedBox.y, selectedBox.width, selectedBox.height);
+    ctxOv.fillStyle = '#ffff00';
+    ctxOv.font      = '13px Courier New';
+    ctxOv.fillText(selectedBox.text, selectedBox.x + 2,
+      selectedBox.y > 14 ? selectedBox.y - 4 : selectedBox.y + selectedBox.height + 14);
   }
 
   // ─── TAP SELECTION ─────────────────────────────────────────────────────────
@@ -502,9 +513,12 @@
           document.body.classList.remove('scanning');
         }
 
+        // Clear overlay and redraw only the selected box in yellow
+        ctxOv.clearRect(0, 0, overlay.width, overlay.height);
+        drawSelectedBox();
+
         hintEl.textContent = `Locked to "${box.text}" — tap ▶ Resume to scan again`;
         statusEl.textContent = 'Paused — selection locked ✓';
-        redrawBoxes();
         hit = true;
       }
     });
