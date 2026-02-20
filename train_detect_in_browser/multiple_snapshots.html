@@ -2,158 +2,241 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Digital Display OCR Gallery Editable</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
-body { background:#111; color:#0f0; font-family:monospace; }
+body { background:#111; color:#0f0; font-family:monospace; margin:10px; }
 #videoContainer { margin-bottom:10px; }
 #videoWrapper { position:relative; width:320px; height:240px; }
 video, canvas { position:absolute; top:0; left:0; }
 #overlay { pointer-events:none; }
-button#captureBtn {
-  display: block;
-  width: 320px;
-  margin: 10px 0;
-  padding: 5px;
-}
+.btn-row { display:flex; gap:8px; margin:10px 0; width:320px; }
+.btn-row button { flex:1; padding:5px; font-family:monospace; cursor:pointer; }
+#captureBtn { background:#111; color:#0f0; border:1px solid #0f0; }
+#switchBtn  { background:#111; color:#0af; border:1px solid #0af; }
+#switchBtn:disabled { opacity:0.4; cursor:not-allowed; }
+#cameraLabel { font-size:11px; color:#888; margin-bottom:4px; }
+#errorMsg { color:#f55; font-size:12px; margin-top:4px; min-height:16px; }
 #gallery { display:flex; flex-direction:column; gap:10px; margin-top:20px; max-height:600px; overflow-y:auto; }
 .snapshot { display:flex; flex-direction:row; align-items:center; border:2px solid #0f0; width:550px; height:240px; }
 .snapshot .canvasWrapper { position:relative; width:320px; height:240px; flex-shrink:0; }
 .snapshot canvas { position:absolute; top:0; left:0; width:320px; height:240px; }
 .snapshot textarea { margin-left:10px; width:120px; height:220px; background:#111; color:#0f0; border:1px solid #0f0; font-family:monospace; font-size:14px; padding:5px; resize:none; }
 .snapshot button.deleteBtn { margin-left:10px; padding:5px; cursor:pointer; background:#800; color:#fff; border:none; border-radius:4px; height:30px; align-self:flex-start; }
-#canvas { display:none; } /* hidden processing canvas */
+#canvas { display:none; }
 </style>
 </head>
 <body>
 
-<h2>Digital Display OCR Vertical Gallery (Editable)</h2>
+<h2>Digital Display OCR Gallery (Editable)</h2>
 
 <div id="videoContainer">
+  <div id="cameraLabel">📷 Camera: <span id="facingLabel">Initializing...</span></div>
   <div id="videoWrapper">
-    <video id="video" width="320" height="240" autoplay></video>
+    <video id="video" width="320" height="240" autoplay playsinline muted></video>
     <canvas id="overlay" width="320" height="240"></canvas>
   </div>
-  <button id="captureBtn">Capture & Detect</button>
+  <div class="btn-row">
+    <button id="captureBtn">Capture &amp; Detect</button>
+    <button id="switchBtn" disabled>⇄ Switch Camera</button>
+  </div>
+  <div id="errorMsg"></div>
 </div>
 
 <div id="gallery"></div>
-
-<canvas id="canvas"></canvas> <!-- hidden processing canvas -->
+<canvas id="canvas"></canvas>
 
 <script>
-const video = document.getElementById('video');
-const overlay = document.getElementById('overlay');
-const ctxOverlay = overlay.getContext('2d');
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const captureBtn = document.getElementById('captureBtn');
-const gallery = document.getElementById('gallery');
+const video       = document.getElementById('video');
+const overlay     = document.getElementById('overlay');
+const canvas      = document.getElementById('canvas');
+const ctx         = canvas.getContext('2d');
+const captureBtn  = document.getElementById('captureBtn');
+const switchBtn   = document.getElementById('switchBtn');
+const facingLabel = document.getElementById('facingLabel');
+const errorMsg    = document.getElementById('errorMsg');
+const gallery     = document.getElementById('gallery');
 
-// start camera
-async function startCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-  video.srcObject = stream;
+let currentStream = null;
+let videoDevices  = [];
+let currentIndex  = 0;
+
+// ── STEP 1: Open a stream first, THEN enumerate ──────────────────────────────
+// On Android, enumerateDevices() before permission returns blank labels/IDs.
+// We must open any camera first so the browser grants permission, then
+// enumerate to get real deviceIds we can use for reliable switching.
+async function init() {
+  errorMsg.textContent = '';
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }
+    });
+    await attachStream(stream);
+    await enumerateDevices();
+
+    // Match currentIndex to the active track's deviceId
+    const activeId = currentStream.getVideoTracks()[0].getSettings().deviceId;
+    const matched  = videoDevices.findIndex(d => d.deviceId === activeId);
+    if (matched !== -1) currentIndex = matched;
+
+    updateLabel();
+    switchBtn.disabled = videoDevices.length < 2;
+    if (videoDevices.length < 2) switchBtn.title = 'Only one camera detected';
+
+  } catch (err) {
+    handleError(err);
+  }
 }
 
-// OCR on a given canvas
-async function processFrame(frameCanvas, frameOverlay, frameTextarea) {
-  const ctxOverlay = frameOverlay.getContext('2d');
-  ctxOverlay.clearRect(0,0,frameOverlay.width,frameOverlay.height);
+async function enumerateDevices() {
+  const all = await navigator.mediaDevices.enumerateDevices();
+  videoDevices = all.filter(d => d.kind === 'videoinput');
+}
 
-  const result = await Tesseract.recognize(
-    frameCanvas,
-    'eng',
-    {
-      tessedit_char_whitelist: '0123456789.',
-      tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK
+async function attachStream(stream) {
+  if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+  currentStream  = stream;
+  video.srcObject = stream;
+  await video.play().catch(() => {});
+}
+
+// ── SWITCH by deviceId — the only reliable method on Android ─────────────────
+// Switching facingMode mid-session triggers NotAllowedError on many Android
+// browsers (Chrome, Samsung Internet). Using the exact deviceId obtained after
+// initial enumeration avoids this because the browser sees it as a fresh
+// explicit request, not a constraint change on an active track.
+async function switchCamera() {
+  if (videoDevices.length < 2) return;
+  switchBtn.disabled = true;
+  errorMsg.textContent = '';
+
+  currentIndex = (currentIndex + 1) % videoDevices.length;
+  const deviceId = videoDevices[currentIndex].deviceId;
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: deviceId } }
+      // Using `exact` forces this specific device.
+      // Do NOT use facingMode here — it can conflict with deviceId on Android.
+    });
+    await attachStream(stream);
+    updateLabel();
+  } catch (err) {
+    // Roll back on failure
+    currentIndex = (currentIndex - 1 + videoDevices.length) % videoDevices.length;
+    handleError(err);
+  } finally {
+    switchBtn.disabled = false;
+  }
+}
+
+function updateLabel() {
+  if (!currentStream) return;
+  const settings = currentStream.getVideoTracks()[0].getSettings();
+  const facing   = settings.facingMode;
+
+  if (facing === 'environment') {
+    facingLabel.textContent = 'Rear 🔭';
+  } else if (facing === 'user') {
+    facingLabel.textContent = 'Front 🤳';
+  } else {
+    // facingMode not reported by some Android browsers — guess from label
+    const label = (videoDevices[currentIndex]?.label || '').toLowerCase();
+    if (label.includes('back') || label.includes('rear') || label.includes('environment')) {
+      facingLabel.textContent = 'Rear 🔭';
+    } else if (label.includes('front') || label.includes('user') || label.includes('selfie')) {
+      facingLabel.textContent = 'Front 🤳';
+    } else {
+      facingLabel.textContent = `Cam ${currentIndex + 1} of ${videoDevices.length}`;
     }
-  );
+  }
+}
 
-  // Combine all detected words into lines for editing
+function handleError(err) {
+  console.error(err);
+  let msg = '⚠ ' + (err.message || err.name || 'Unknown error');
+  if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+    msg = '⚠ Camera permission denied. Please allow camera access in browser settings.';
+  } else if (err.name === 'NotFoundError') {
+    msg = '⚠ No camera found on this device.';
+  } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+    msg = '⚠ Camera in use by another app. Close other apps and retry.';
+  }
+  errorMsg.textContent = msg;
+  facingLabel.textContent = 'Error';
+}
+
+// ── OCR ───────────────────────────────────────────────────────────────────────
+async function processFrame(frameCanvas, frameOverlay, frameTextarea) {
+  const ctxOv = frameOverlay.getContext('2d');
+  ctxOv.clearRect(0, 0, frameOverlay.width, frameOverlay.height);
+
+  const result = await Tesseract.recognize(frameCanvas, 'eng', {
+    tessedit_char_whitelist: '0123456789.',
+    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK
+  });
+
   const lines = [];
   if (result.data.words) {
     result.data.words.forEach(word => {
       const text = word.text.trim();
       if (/^[0-9.]+$/.test(text)) {
         lines.push(text);
-      }
-    });
-  }
-
-  frameTextarea.value = lines.join('\n') || "No digits detected";
-
-  // Draw bounding boxes
-  if (result.data.words) {
-    result.data.words.forEach(word => {
-      const text = word.text.trim();
-      if (/^[0-9.]+$/.test(text)) {
         const { x0, y0, x1, y1 } = word.bbox;
-        const scaleX = frameOverlay.width / frameCanvas.width;
+        const scaleX = frameOverlay.width  / frameCanvas.width;
         const scaleY = frameOverlay.height / frameCanvas.height;
-        const sx = x0 * scaleX;
-        const sy = y0 * scaleY;
-        const sw = (x1 - x0) * scaleX;
-        const sh = (y1 - y0) * scaleY;
-
-        ctxOverlay.strokeStyle = "lime";
-        ctxOverlay.lineWidth = 2;
-        ctxOverlay.strokeRect(sx, sy, sw, sh);
-
-        ctxOverlay.fillStyle = "lime";
-        ctxOverlay.fillText(text, sx, sy - 5);
+        ctxOv.strokeStyle = 'lime';
+        ctxOv.lineWidth   = 2;
+        ctxOv.strokeRect(x0*scaleX, y0*scaleY, (x1-x0)*scaleX, (y1-y0)*scaleY);
+        ctxOv.fillStyle   = 'lime';
+        ctxOv.fillText(text, x0*scaleX, y0*scaleY - 5);
       }
     });
   }
+  frameTextarea.value = lines.join('\n') || 'No digits detected';
 }
 
-// Capture button click
-captureBtn.addEventListener("click", async () => {
-  const snapDiv = document.createElement("div");
-  snapDiv.className = "snapshot";
+// ── Capture ───────────────────────────────────────────────────────────────────
+captureBtn.addEventListener('click', async () => {
+  const snapDiv = document.createElement('div');
+  snapDiv.className = 'snapshot';
 
-  // Canvas wrapper
-  const canvasWrapper = document.createElement("div");
-  canvasWrapper.className = "canvasWrapper";
+  const canvasWrapper = document.createElement('div');
+  canvasWrapper.className = 'canvasWrapper';
 
-  const snapCanvas = document.createElement("canvas");
-  snapCanvas.width = video.videoWidth;
-  snapCanvas.height = video.videoHeight;
+  const snapCanvas = document.createElement('canvas');
+  snapCanvas.width  = video.videoWidth  || 320;
+  snapCanvas.height = video.videoHeight || 240;
   canvasWrapper.appendChild(snapCanvas);
 
-  const snapOverlay = document.createElement("canvas");
-  snapOverlay.width = 320;
+  const snapOverlay = document.createElement('canvas');
+  snapOverlay.width  = 320;
   snapOverlay.height = 240;
   canvasWrapper.appendChild(snapOverlay);
 
   snapDiv.appendChild(canvasWrapper);
 
-  // Editable OCR textarea
-  const snapTextarea = document.createElement("textarea");
-  snapTextarea.value = "Detecting...";
+  const snapTextarea = document.createElement('textarea');
+  snapTextarea.value = 'Detecting...';
   snapDiv.appendChild(snapTextarea);
 
-  // Delete button
-  const delBtn = document.createElement("button");
-  delBtn.className = "deleteBtn";
-  delBtn.innerText = "Delete";
-  delBtn.addEventListener("click", () => {
-    gallery.removeChild(snapDiv);
-  });
+  const delBtn = document.createElement('button');
+  delBtn.className = 'deleteBtn';
+  delBtn.innerText  = 'Delete';
+  delBtn.addEventListener('click', () => gallery.removeChild(snapDiv));
   snapDiv.appendChild(delBtn);
 
   gallery.appendChild(snapDiv);
 
-  // Draw current video frame to hidden canvas
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
+  canvas.width  = video.videoWidth  || 320;
+  canvas.height = video.videoHeight || 240;
   ctx.drawImage(video, 0, 0);
 
-  // Copy to snapshot canvas
-  const snapCtx = snapCanvas.getContext("2d");
+  const snapCtx = snapCanvas.getContext('2d');
   snapCtx.drawImage(canvas, 0, 0, snapCanvas.width, snapCanvas.height);
 
-  // Convert to grayscale
+  // Grayscale conversion
   const imageData = snapCtx.getImageData(0, 0, snapCanvas.width, snapCanvas.height);
   const data = imageData.data;
   for (let i = 0; i < data.length; i += 4) {
@@ -162,12 +245,11 @@ captureBtn.addEventListener("click", async () => {
   }
   snapCtx.putImageData(imageData, 0, 0);
 
-  // Run OCR
   await processFrame(snapCanvas, snapOverlay, snapTextarea);
 });
 
-// start camera
-startCamera();
+switchBtn.addEventListener('click', switchCamera);
+init();
 </script>
 
 </body>
