@@ -1,80 +1,457 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Digit Detection</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Meter OCR — YOLO</title>
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial; background: #1a1a1a; color: #eee; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-  h2 { margin-bottom: 16px; letter-spacing: 2px; color: #FFD700; }
+*, *::before, *::after { box-sizing: border-box; }
 
-  #result-number {
-    font-size: 52px;
-    font-weight: bold;
-    letter-spacing: 10px;
-    color: #FFD700;
-    background: #111;
-    border: 2px solid #333;
-    border-radius: 12px;
-    padding: 14px 36px;
-    margin-bottom: 16px;
-    min-width: 220px;
-    text-align: center;
-  }
+body {
+  margin: 0; padding: 0;
+  background: #0a0a0a;
+  color: #e0e0e0;
+  font-family: 'Courier New', monospace;
+  min-height: 100vh;
+  display: flex; flex-direction: column; align-items: center;
+}
 
-  #digit-row {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .digit-card {
-    background: #222;
-    border: 2px solid #444;
-    border-radius: 8px;
-    padding: 8px 14px;
-    text-align: center;
-    min-width: 54px;
-  }
-  .digit-card .digit { font-size: 28px; font-weight: bold; }
-  .digit-card .conf  { font-size: 11px; color: #aaa; margin-top: 2px; }
+/* ─── SHARED ─────────────────────────────────────────────── */
+.page { width: 100%; max-width: 480px; display: none; flex-direction: column; }
+.page.active { display: flex; }
 
-  canvas { border: 2px solid #444; max-width: 100%; border-radius: 6px; }
-  #log { font-size: 13px; color: #888; margin-top: 10px; }
+.page-title {
+  font-size: 0.85rem; letter-spacing: 0.2em; text-transform: uppercase;
+  color: #aaffcc; text-align: center; margin: 12px 0 2px;
+}
+.page-sub {
+  font-size: 0.68rem; color: #446655; text-align: center;
+  margin-bottom: 14px; letter-spacing: 0.04em; padding: 0 16px;
+}
+
+.btn {
+  background: #1a2e1a; border: 2px solid #00cc66; color: #00ff88;
+  font-family: 'Courier New', monospace; font-weight: bold;
+  border-radius: 6px; cursor: pointer; letter-spacing: 0.05em;
+  text-transform: uppercase; transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  text-shadow: 0 0 8px #00ff8866;
+}
+.btn:active { background: #00ff8833; border-color: #00ff88; }
+.btn.active { background: #00441a; border-color: #00ff88; color: #fff; }
+.btn-sm  { padding: 8px 10px; font-size: 0.75rem; }
+.btn-md  { padding: 11px 8px; font-size: 0.8rem; }
+.btn-lg  { width: 100%; padding: 14px; font-size: 0.88rem; margin-top: 16px; }
+.btn-red { border-color: #cc3333; color: #ff6666; background: #2a0a0a; }
+.btn-red:active { background: #ff333322; }
+.btn-amber { border-color: #cc8800; color: #ffaa00; background: #1a1400; }
+.btn-amber:active { background: #ffaa0022; }
+
+/* ─── MODEL STATUS BAR ───────────────────────────────────── */
+#model-bar {
+  width: 100%; max-width: 480px;
+  padding: 5px 12px;
+  font-size: 0.68rem; letter-spacing: 0.06em;
+  text-align: center;
+  background: #0d1a0d;
+  border-bottom: 1px solid #152215;
+  color: #557766;
+  min-height: 24px;
+}
+#model-bar.ready  { color: #00cc66; }
+#model-bar.error  { color: #ff4444; }
+#model-bar.loading { color: #ffaa00; }
+
+/* ─── PAGE 1: METER SETUP ────────────────────────────────── */
+#pg-setup { padding: 0 16px 24px; }
+
+.meter-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid #152215;
+}
+.meter-num { font-size: 0.7rem; color: #336644; width: 20px; text-align: right; flex-shrink: 0; }
+.meter-input {
+  flex: 1; background: #101e10; border: 1px solid #224422; border-radius: 4px;
+  color: #00ff88; font-family: 'Courier New', monospace; font-size: 0.88rem;
+  padding: 7px 10px; outline: none; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.meter-input:focus { border-color: #00cc66; background: #152215; }
+.meter-input::placeholder { color: #2a4a2a; text-transform: none; }
+
+/* ─── PAGE 2: SESSION NAME ───────────────────────────────── */
+#pg-session { padding: 0 16px 24px; }
+
+.session-opts { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+
+.opt-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px; border: 2px solid #224422; border-radius: 6px;
+  cursor: pointer; background: #101e10; transition: border-color 0.15s;
+}
+.opt-row:active, .opt-row.selected { border-color: #00cc66; background: #152215; }
+.opt-radio {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid #336644; background: transparent; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.opt-row.selected .opt-radio { border-color: #00ff88; background: #00ff88; }
+.opt-label { font-size: 0.82rem; color: #aaffcc; font-weight: bold; }
+.opt-val   { font-size: 0.72rem; color: #557766; margin-top: 2px; }
+
+#custom-name-wrap { display: none; margin-top: 10px; }
+#custom-name {
+  width: 100%; background: #101e10; border: 2px solid #224422; border-radius: 6px;
+  color: #00ff88; font-family: 'Courier New', monospace; font-size: 1rem;
+  padding: 10px 12px; outline: none; letter-spacing: 0.05em; text-transform: uppercase;
+}
+#custom-name:focus { border-color: #00cc66; }
+
+.session-history { margin-top: 18px; }
+.session-history-title { font-size: 0.65rem; color: #336644; letter-spacing: 0.1em; margin-bottom: 8px; }
+.session-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; margin: 3px; border: 1px solid #224422;
+  border-radius: 12px; background: #101e10; cursor: pointer;
+  font-size: 0.72rem; color: #557766;
+}
+.session-chip:active { border-color: #00cc66; color: #00ff88; }
+
+/* ─── PAGE 3: OCR ────────────────────────────────────────── */
+#pg-ocr { align-items: center; max-width: 100%; }
+
+#ocr-header {
+  width: 100%; max-width: 480px;
+  display: flex; align-items: center; padding: 7px 10px; gap: 8px;
+  border-bottom: 1px solid #1a3a1a; background: #0d1a0d;
+}
+#back-ocr { flex-shrink: 0; }
+#session-label-display {
+  flex: 1; text-align: center; font-size: 0.78rem; color: #557766;
+  letter-spacing: 0.1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#meter-name-display {
+  flex: 1; text-align: center; font-size: 0.95rem; font-weight: bold;
+  color: #00ff88; letter-spacing: 0.15em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#meter-counter { font-size: 0.65rem; color: #336644; flex-shrink: 0; }
+
+#meter-nav {
+  display: flex; gap: 5px; padding: 7px 10px;
+  width: 100%; max-width: 480px; justify-content: center; flex-wrap: wrap;
+  background: #0a0a0a;
+}
+.meter-dot {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px solid #224422; background: #101e10; color: #336644;
+  font-family: 'Courier New', monospace; font-size: 0.65rem; font-weight: bold;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; flex-shrink: 0; padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.meter-dot.active    { border-color: #00cc66; background: #152215; color: #00ff88; }
+.meter-dot.has-value { border-color: #00884a; color: #00cc66; }
+.meter-dot.active.has-value { border-color: #00ff88; background: #152215; color: #00ff88; }
+
+/* Camera */
+#cam-wrapper {
+  position: relative; width: 100vw; max-width: 480px;
+}
+#video { display: block; width: 100%; height: 100%; object-fit: cover; background: #000; }
+#overlay {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: auto; touch-action: none;
+}
+
+/* YOLO digit strip — shown above output box during scanning */
+#digit-strip {
+  width: 100%; max-width: 480px;
+  display: flex; flex-wrap: wrap; gap: 5px;
+  padding: 6px 10px;
+  background: #0a130a;
+  border-top: 1px solid #152215;
+  min-height: 36px;
+  align-items: center;
+}
+.digit-pill {
+  display: flex; flex-direction: column; align-items: center;
+  border: 2px solid #224422; border-radius: 6px;
+  padding: 2px 8px; background: #101e10;
+  cursor: pointer;
+  transition: border-color 0.1s;
+  -webkit-tap-highlight-color: transparent;
+}
+.digit-pill:active { border-color: #00ff88; background: #152215; }
+.digit-pill.locked { border-color: #ffff00 !important; background: #1a1a00; }
+.digit-pill .dp-val { font-size: 1.1rem; font-weight: bold; color: #00ff88; line-height: 1; }
+.digit-pill.locked .dp-val { color: #ffff00; }
+.digit-pill .dp-conf { font-size: 0.58rem; color: #446644; margin-top: 1px; }
+#digit-strip-label {
+  font-size: 0.62rem; color: #336644; letter-spacing: 0.08em; flex-shrink: 0;
+}
+
+#controls {
+  display: flex; gap: 8px; padding: 9px 12px;
+  width: 100%; max-width: 480px;
+}
+#controls button { flex: 1; padding: 13px 4px; font-size: 0.8rem; }
+
+#output-box {
+  width: 100%; max-width: 480px; padding: 10px 14px 14px;
+  border-top: 2px solid #00cc6644; background: #0f1f0f;
+}
+#status { font-size: 0.75rem; color: #88cc99; margin-bottom: 8px; min-height: 1.2em; }
+#output-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  background: #152215; border: 2px solid #00cc66; border-radius: 6px; padding: 7px 10px;
+}
+#output-label { font-size: 0.62rem; color: #55aa77; white-space: nowrap; font-weight: bold; }
+#output {
+  flex: 1; font-size: 1.5rem; font-weight: bold; color: #00ff88;
+  background: transparent; border: none; outline: none;
+  font-family: 'Courier New', monospace; min-width: 0; padding: 0 4px;
+  caret-color: #00ff88;
+}
+#output::placeholder { color: #336644; font-size: 1.1rem; }
+#copy-btn { flex: none; padding: 7px 11px; font-size: 0.75rem; white-space: nowrap; }
+#hint { font-size: 0.7rem; color: #668877; min-height: 1em; padding: 1px 2px; }
+
+#done-session-wrap {
+  width: 100%; max-width: 480px; padding: 8px 12px;
+  background: #0a0a0a; border-top: 1px solid #152215;
+}
+
+#canvas { display: none; }
+
+.scanning #status::after { content: ''; animation: dots 1.2s infinite; }
+@keyframes dots {
+  0%   { content: '.'; }
+  33%  { content: '..'; }
+  66%  { content: '...'; }
+}
+
+/* ─── PAGE 4: TABLE ──────────────────────────────────────── */
+#pg-table { padding: 0 0 30px; }
+
+#table-header {
+  width: 100%; display: flex; align-items: center;
+  padding: 8px 12px; gap: 8px;
+  border-bottom: 1px solid #1a3a1a; background: #0d1a0d;
+}
+#table-header .page-title { margin: 0; flex: 1; }
+
+.tbl-wrap { width: 100%; overflow-x: auto; padding: 12px 0; }
+
+table {
+  border-collapse: collapse; min-width: 100%;
+  font-size: 0.72rem; font-family: 'Courier New', monospace;
+}
+th, td {
+  border: 1px solid #1a3a1a; padding: 7px 10px;
+  text-align: center; white-space: nowrap;
+}
+th {
+  background: #0d1a0d; color: #00cc66; letter-spacing: 0.08em;
+  font-size: 0.65rem; text-transform: uppercase;
+}
+th.session-col { background: #0a1a0a; color: #557766; }
+td { color: #aaffcc; background: #0a0a0a; }
+td.session-name { color: #00cc66; font-weight: bold; text-align: left; background: #0d1a0d; }
+td.empty { color: #2a4a2a; }
+
+.tbl-actions {
+  display: flex; gap: 8px; padding: 0 12px; margin-top: 8px; flex-wrap: wrap;
+}
+.tbl-actions button { flex: 1; min-width: 120px; padding: 11px 6px; font-size: 0.75rem; }
 </style>
 </head>
 <body>
 
-<h2>Digit Detection</h2>
-<div id="result-number">—</div>
-<div id="digit-row"></div>
+<!-- Model status bar — always visible at top -->
+<div id="model-bar" class="loading">⏳ Loading YOLO model…</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE 1 — METER SETUP                                      -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page" id="pg-setup">
+  <div class="page-title">Meter Setup</div>
+  <p class="page-sub">Name each meter (max 10 chars). Blank slots are skipped.</p>
+  <div id="meter-list" style="padding:0 16px"></div>
+  <div style="padding:0 16px">
+    <button class="btn btn-lg" onclick="goToSession()">▶ Next: Set Reading Name</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE 2 — SESSION / READING NAME                          -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page" id="pg-session">
+  <div class="page-title">Reading Name</div>
+  <p class="page-sub">Choose how to label this set of readings</p>
+
+  <div class="session-opts">
+    <div class="opt-row" id="opt-24" onclick="selectOpt('24h')">
+      <div class="opt-radio"></div>
+      <div>
+        <div class="opt-label">24-hour time</div>
+        <div class="opt-val" id="val-24h">e.g. 14:00</div>
+      </div>
+    </div>
+    <div class="opt-row" id="opt-12" onclick="selectOpt('12h')">
+      <div class="opt-radio"></div>
+      <div>
+        <div class="opt-label">12-hour time</div>
+        <div class="opt-val" id="val-12h">e.g. 2:00 PM</div>
+      </div>
+    </div>
+    <div class="opt-row" id="opt-custom" onclick="selectOpt('custom')">
+      <div class="opt-radio"></div>
+      <div>
+        <div class="opt-label">Custom name</div>
+        <div class="opt-val">Enter any label</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="custom-name-wrap">
+    <input id="custom-name" type="text" maxlength="20" placeholder="TYPE LABEL..."
+           autocomplete="off" spellcheck="false"
+           oninput="this.value=this.value.toUpperCase()" />
+  </div>
+
+  <div class="session-history" id="session-history-wrap" style="display:none">
+    <div class="session-history-title">PREVIOUS SESSIONS — tap to view table</div>
+    <div id="session-chips"></div>
+  </div>
+
+  <div style="padding:0">
+    <button class="btn btn-lg" onclick="startReading()">▶ Start Reading</button>
+    <button class="btn btn-lg btn-amber" onclick="showTable()" id="btn-view-table" style="display:none;margin-top:8px">
+      ≡ View Results Table
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE 3 — OCR                                             -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page" id="pg-ocr">
+
+  <div id="ocr-header">
+    <button class="btn btn-sm" id="back-ocr" onclick="goToSession()">◀ Back</button>
+    <div id="meter-name-display">—</div>
+    <div id="meter-counter">1/10</div>
+  </div>
+
+  <div id="meter-nav"></div>
+
+  <div id="cam-wrapper">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+  </div>
+
+  <!-- YOLO digit pills strip -->
+  <div id="digit-strip">
+    <span id="digit-strip-label">DETECTED:</span>
+  </div>
+
+  <div id="controls">
+    <button class="btn" id="btn-torch" onclick="toggleTorch()">⚡ Torch</button>
+    <button class="btn" id="btn-cam"   onclick="switchCamera()">↩ Flip</button>
+    <button class="btn" id="btn-pause" onclick="togglePause()">⏸ Pause</button>
+  </div>
+
+  <div id="output-box">
+    <div id="status">Starting camera...</div>
+    <div id="output-row">
+      <span id="output-label">VALUE</span>
+      <input id="output" type="text" placeholder="—" autocomplete="off" spellcheck="false" />
+      <button class="btn btn-sm" id="copy-btn" onclick="copyValue()">⎘ Copy</button>
+    </div>
+    <div id="hint">Tap a bounding box or digit pill to lock a value</div>
+  </div>
+
+  <div id="done-session-wrap">
+    <button class="btn btn-lg btn-amber" onclick="finishSession()">✓ Done — Save This Reading</button>
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!--  PAGE 4 — TABLE                                           -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page" id="pg-table">
+  <div id="table-header">
+    <button class="btn btn-sm" onclick="goToSession()">◀ Back</button>
+    <div class="page-title">Results</div>
+    <div style="width:60px"></div>
+  </div>
+  <div class="tbl-wrap">
+    <table id="results-table"></table>
+  </div>
+  <div class="tbl-actions">
+    <button class="btn btn-sm btn-amber" onclick="copyTableCSV()">⎘ Copy CSV</button>
+    <button class="btn btn-sm btn-red"   onclick="clearAllData()">✕ Clear All</button>
+  </div>
+</div>
+
 <canvas id="canvas"></canvas>
-<div id="log">Loading model...</div>
 
 <script>
-// ─── CONFIG ──────────────────────────────────────────
-const MODEL_PATH     = "best.onnx";
-const IMAGE_PATH     = "img1.jpeg";
+// ════════════════════════════════════════════════════════════
+//  YOLO CONFIG
+// ════════════════════════════════════════════════════════════
+const MODEL_PATH     = 'best.onnx';
 const MODEL_INPUT    = 576;
 const CONF_THRESHOLD = 0.25;
 const IOU_THRESHOLD  = 0.45;
-const CLASS_NAMES    = ["-","0","1","2","3","4","5","6","7","8","9"]; // 11 classes
-// ─────────────────────────────────────────────────────
+const CLASS_NAMES    = ['-','0','1','2','3','4','5','6','7','8','9']; // 11 classes: dash + 0-9
+const BOX_COLORS     = [
+  '#AAAAAA','#FF4444','#44AAFF','#44FF88','#FFD700',
+  '#FF44FF','#44FFFF','#FF8800','#88FF00','#AA44FF','#FF4488'
+];
 
-const logEl    = document.getElementById("log");
-const resultEl = document.getElementById("result-number");
-const rowEl    = document.getElementById("digit-row");
-const log = msg => { console.log(msg); logEl.innerText = msg; };
+// ════════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════════
+const MAX_METERS = 10;
+let meterNames     = [];
+let sessions       = [];
+let currentSession = null;
+let currentMeterIdx = 0;
+let sessionNameMode = '24h';
 
+// YOLO model session
+let ortSession = null;
+
+// OCR / camera state
+let boxes = [], processing = false, paused = false;
+let currentStream = null, torchOn = false, usingRear = true;
+let ocrInterval = null, torchTrack = null;
+let lockedBox = null;   // the currently locked detection box (replaces selectedBox)
+
+// ── DOM refs
+const video    = document.getElementById('video');
+const overlay  = document.getElementById('overlay');
+const ctxOv    = overlay.getContext('2d');
+const canvas   = document.getElementById('canvas');
+const ctx      = canvas.getContext('2d');
+const wrapper  = document.getElementById('cam-wrapper');
+const statusEl = document.getElementById('status');
+const outputEl = document.getElementById('output');
+const hintEl   = document.getElementById('hint');
+const modelBar = document.getElementById('model-bar');
+const stripEl  = document.getElementById('digit-strip');
+
+// ════════════════════════════════════════════════════════════
+//  YOLO HELPERS
+// ════════════════════════════════════════════════════════════
 function iou(a, b) {
   const x1 = Math.max(a.x1, b.x1), y1 = Math.max(a.y1, b.y1);
   const x2 = Math.min(a.x2, b.x2), y2 = Math.min(a.y2, b.y2);
   const inter = Math.max(0, x2-x1) * Math.max(0, y2-y1);
-  const areaA = (a.x2-a.x1) * (a.y2-a.y1);
-  const areaB = (b.x2-b.x1) * (b.y2-b.y1);
-  return inter / (areaA + areaB - inter + 1e-6);
+  return inter / ((a.x2-a.x1)*(a.y2-a.y1) + (b.x2-b.x1)*(b.y2-b.y1) - inter + 1e-6);
 }
 
 function nms(boxes) {
@@ -88,48 +465,27 @@ function nms(boxes) {
   return keep;
 }
 
-function letterbox(img, size) {
-  const c   = document.createElement("canvas");
-  c.width   = c.height = size;
-  const ctx = c.getContext("2d");
-  ctx.fillStyle = "#808080";
-  ctx.fillRect(0, 0, size, size);
-  const scale = Math.min(size/img.width, size/img.height);
-  const nw    = Math.round(img.width  * scale);
-  const nh    = Math.round(img.height * scale);
-  const dx    = Math.round((size - nw) / 2);
-  const dy    = Math.round((size - nh) / 2);
-  ctx.drawImage(img, dx, dy, nw, nh);
+function letterbox(srcCanvas, size) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const lctx = c.getContext('2d');
+  lctx.fillStyle = '#808080';
+  lctx.fillRect(0, 0, size, size);
+  const scale = Math.min(size / srcCanvas.width, size / srcCanvas.height);
+  const nw = Math.round(srcCanvas.width  * scale);
+  const nh = Math.round(srcCanvas.height * scale);
+  const dx = Math.round((size - nw) / 2);
+  const dy = Math.round((size - nh) / 2);
+  lctx.drawImage(srcCanvas, dx, dy, nw, nh);
   return { canvas: c, scale, dx, dy };
 }
 
-const COLORS = [
-  "#AAAAAA","#FF4444","#44AAFF","#44FF88","#FFD700",
-  "#FF44FF","#44FFFF","#FF8800","#88FF00","#AA44FF","#FF4488"
-];
+async function runYolo(srcCanvas) {
+  if (!ortSession) return [];
 
-async function run() {
-  log("Loading model...");
-  const session = await ort.InferenceSession.create(MODEL_PATH);
-  log("Model loaded ✅");
-
-  const img = await new Promise((res, rej) => {
-    const i   = new Image();
-    i.onload  = () => res(i);
-    i.onerror = () => rej("Image load failed");
-    i.src     = IMAGE_PATH;
-  });
-
-  // Draw original on canvas
-  const canvas = document.getElementById("canvas");
-  const ctx    = canvas.getContext("2d");
-  canvas.width  = img.width;
-  canvas.height = img.height;
-  ctx.drawImage(img, 0, 0);
-
-  // Letterbox preprocess
-  const { canvas: lbCanvas, scale, dx, dy } = letterbox(img, MODEL_INPUT);
-  const lbCtx     = lbCanvas.getContext("2d");
+  const origW = srcCanvas.width, origH = srcCanvas.height;
+  const { canvas: lbCanvas, scale, dx, dy } = letterbox(srcCanvas, MODEL_INPUT);
+  const lbCtx     = lbCanvas.getContext('2d');
   const imageData = lbCtx.getImageData(0, 0, MODEL_INPUT, MODEL_INPUT).data;
   const area      = MODEL_INPUT * MODEL_INPUT;
   const input     = new Float32Array(3 * area);
@@ -139,97 +495,646 @@ async function run() {
     input[i + area*2] = imageData[i*4+2] / 255;
   }
 
-  // Inference
-  const tensor  = new ort.Tensor("float32", input, [1, 3, MODEL_INPUT, MODEL_INPUT]);
-  const results = await session.run({ images: tensor });
+  const tensor  = new ort.Tensor('float32', input, [1, 3, MODEL_INPUT, MODEL_INPUT]);
+  const results = await ortSession.run({ images: tensor });
+  const outT    = results[Object.keys(results)[0]];
+  const dims    = outT.dims;
+  const output  = outT.data;
+  const numAnch = dims[2];
+  const numCls  = dims[1] - 4;
 
-  const outTensor  = results[Object.keys(results)[0]];
-  const dims       = outTensor.dims;
-  const output     = outTensor.data;
-  const numAnchors = dims[2];
-  const numClasses = dims[1] - 4;  // YOLOv8: no objectness, just 4box + classes
-
-  console.log(`Output: [${dims}] → numClasses=${numClasses} numAnchors=${numAnchors}`);
-
-  // Decode — YOLOv8 style (no objectness, no sigmoid needed on class scores)
-  const boxes = [];
-  for (let i = 0; i < numAnchors; i++) {
+  const rawBoxes = [];
+  for (let i = 0; i < numAnch; i++) {
     let bestClass = 0, bestScore = 0;
-    for (let c = 0; c < numClasses; c++) {
-      const s = output[(4 + c) * numAnchors + i];
+    for (let c = 0; c < numCls; c++) {
+      const s = output[(4 + c) * numAnch + i];
       if (s > bestScore) { bestScore = s; bestClass = c; }
     }
     if (bestScore < CONF_THRESHOLD) continue;
 
-    const cx = output[0 * numAnchors + i];
-    const cy = output[1 * numAnchors + i];
-    const w  = output[2 * numAnchors + i];
-    const h  = output[3 * numAnchors + i];
+    const cx = output[0 * numAnch + i];
+    const cy = output[1 * numAnch + i];
+    const w  = output[2 * numAnch + i];
+    const h  = output[3 * numAnch + i];
 
-    const x1 = ((cx - w/2) - dx) / scale;
-    const y1 = ((cy - h/2) - dy) / scale;
-    const x2 = ((cx + w/2) - dx) / scale;
-    const y2 = ((cy + h/2) - dy) / scale;
-
-    boxes.push({
-      x1: Math.max(0, x1),
-      y1: Math.max(0, y1),
-      x2: Math.min(img.width,  x2),
-      y2: Math.min(img.height, y2),
+    rawBoxes.push({
+      x1: Math.max(0, ((cx - w/2) - dx) / scale),
+      y1: Math.max(0, ((cy - h/2) - dy) / scale),
+      x2: Math.min(origW, ((cx + w/2) - dx) / scale),
+      y2: Math.min(origH, ((cy + h/2) - dy) / scale),
       score   : bestScore,
-      label   : CLASS_NAMES[bestClass] ?? String(bestClass),
+      text    : CLASS_NAMES[bestClass] ?? String(bestClass),
       classIdx: bestClass
     });
   }
 
-  // NMS → sort left to right
-  const finalBoxes = nms(boxes).sort((a, b) => a.x1 - b.x1);
-  console.log("Final detections:", finalBoxes.length);
+  // NMS then sort left-to-right
+  return nms(rawBoxes).sort((a, b) => a.x1 - b.x1);
+}
 
-  // Full number string
-  const fullNumber = finalBoxes.map(b => b.label).join("");
-  resultEl.textContent = fullNumber || "—";
-  log(`Detected ${finalBoxes.length} digit(s)  →  ${fullNumber}`);
+// ════════════════════════════════════════════════════════════
+//  LOAD MODEL
+// ════════════════════════════════════════════════════════════
+(async () => {
+  try {
+    ortSession = await ort.InferenceSession.create(MODEL_PATH);
+    modelBar.textContent = '✅ YOLO model ready';
+    modelBar.className   = 'ready';
+  } catch (e) {
+    modelBar.textContent = '❌ Model failed: ' + e.message;
+    modelBar.className   = 'error';
+    console.error('YOLO load error:', e);
+  }
+})();
 
-  // Digit cards
-  rowEl.innerHTML = "";
-  finalBoxes.forEach(b => {
-    const color = COLORS[b.classIdx % COLORS.length];
-    const card  = document.createElement("div");
-    card.className = "digit-card";
-    card.style.borderColor = color;
-    card.innerHTML = `
-      <div class="digit" style="color:${color}">${b.label}</div>
-      <div class="conf">${(b.score * 100).toFixed(1)}%</div>
+// ════════════════════════════════════════════════════════════
+//  PAGE NAVIGATION
+// ════════════════════════════════════════════════════════════
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ════════════════════════════════════════════════════════════
+//  PAGE 1 — METER SETUP
+// ════════════════════════════════════════════════════════════
+function buildSetupPage() {
+  const list = document.getElementById('meter-list');
+  list.innerHTML = '';
+  for (let i = 0; i < MAX_METERS; i++) {
+    const row = document.createElement('div');
+    row.className = 'meter-row';
+    row.innerHTML = `
+      <span class="meter-num">${i+1}</span>
+      <input class="meter-input" id="m${i}" type="text" maxlength="10"
+             placeholder="Meter ${i+1}" autocomplete="off" spellcheck="false"
+             oninput="this.value=this.value.toUpperCase().slice(0,10)" />
     `;
-    rowEl.appendChild(card);
+    list.appendChild(row);
+    if (meterNames[i]) setTimeout(() => {
+      const el = document.getElementById('m'+i);
+      if (el) el.value = meterNames[i];
+    }, 0);
+  }
+  setTimeout(() => { const el = document.getElementById('m0'); if(el) el.focus(); }, 100);
+  showPage('pg-setup');
+}
+
+function goToSession() {
+  meterNames = [];
+  for (let i = 0; i < MAX_METERS; i++) {
+    const el = document.getElementById('m' + i);
+    const v  = el ? el.value.trim() : '';
+    if (v) meterNames.push(v);
+  }
+  if (!meterNames.length) meterNames = ['METER 1'];
+  stopCamera();
+  updateSessionPage();
+  showPage('pg-session');
+}
+
+// ════════════════════════════════════════════════════════════
+//  PAGE 2 — SESSION NAME
+// ════════════════════════════════════════════════════════════
+function getHourLabel(mode) {
+  const now = new Date();
+  now.setMinutes(0, 0, 0);
+  if (mode === '24h') return now.getHours().toString().padStart(2,'0') + ':00';
+  let h = now.getHours(); const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return h + ':00 ' + ampm;
+}
+
+function selectOpt(mode) {
+  sessionNameMode = mode;
+  ['24h','12h','custom'].forEach(m => {
+    const id = m === '24h' ? 'opt-24' : m === '12h' ? 'opt-12' : 'opt-custom';
+    document.getElementById(id).classList.toggle('selected', m === mode);
   });
+  document.getElementById('custom-name-wrap').style.display = mode === 'custom' ? 'block' : 'none';
+  if (mode === 'custom') setTimeout(() => document.getElementById('custom-name').focus(), 80);
+}
 
-  // Draw boxes on canvas
-  finalBoxes.forEach(b => {
-    const color = COLORS[b.classIdx % COLORS.length];
-    const bw    = b.x2 - b.x1;
-    const bh    = b.y2 - b.y1;
+function updateSessionPage() {
+  document.getElementById('val-24h').textContent = getHourLabel('24h');
+  document.getElementById('val-12h').textContent = getHourLabel('12h');
+  selectOpt(sessionNameMode);
 
-    ctx.strokeStyle = color;
-    ctx.lineWidth   = 2;
-    ctx.strokeRect(b.x1, b.y1, bw, bh);
+  const histWrap = document.getElementById('session-history-wrap');
+  const chips    = document.getElementById('session-chips');
+  const viewBtn  = document.getElementById('btn-view-table');
 
-    const text = `${b.label} ${(b.score*100).toFixed(0)}%`;
-    ctx.font   = "bold 15px Arial";
-    const tw   = ctx.measureText(text).width;
-    const th   = 18;
-    const lx   = b.x1;
-    const ly   = b.y1 > th+2 ? b.y1-th-2 : b.y1+bh+2;
+  if (sessions.length > 0) {
+    histWrap.style.display = 'block';
+    viewBtn.style.display  = 'block';
+    chips.innerHTML = '';
+    sessions.forEach(s => {
+      const chip = document.createElement('span');
+      chip.className   = 'session-chip';
+      chip.textContent = s.name;
+      chip.onclick     = () => showTable();
+      chips.appendChild(chip);
+    });
+  } else {
+    histWrap.style.display = 'none';
+    viewBtn.style.display  = 'none';
+  }
+}
 
-    ctx.fillStyle = color;
-    ctx.fillRect(lx, ly, tw+8, th+4);
-    ctx.fillStyle = "#000";
-    ctx.fillText(text, lx+4, ly+th);
+function getSessionName() {
+  if (sessionNameMode === '24h') return getHourLabel('24h');
+  if (sessionNameMode === '12h') return getHourLabel('12h');
+  const v = document.getElementById('custom-name').value.trim().toUpperCase();
+  return v || 'SESSION ' + (sessions.length + 1);
+}
+
+function startReading() {
+  const name = getSessionName();
+  const readings = {};
+  meterNames.forEach(n => readings[n] = '');
+  currentSession  = { name, readings };
+  currentMeterIdx = 0;
+  showPage('pg-ocr');
+  buildMeterNav();
+  switchMeter(0);
+  startCamera(usingRear);
+}
+
+// ════════════════════════════════════════════════════════════
+//  PAGE 3 — OCR
+// ════════════════════════════════════════════════════════════
+function buildMeterNav() {
+  const nav = document.getElementById('meter-nav');
+  nav.innerHTML = '';
+  meterNames.forEach((name, i) => {
+    const dot = document.createElement('button');
+    dot.className   = 'meter-dot';
+    dot.id          = `dot-${i}`;
+    dot.title       = name;
+    dot.textContent = i + 1;
+    dot.onclick     = () => switchMeter(i);
+    nav.appendChild(dot);
   });
 }
 
-run().catch(e => log("❌ " + e));
+function switchMeter(idx) {
+  if (currentSession && meterNames[currentMeterIdx] !== undefined) {
+    currentSession.readings[meterNames[currentMeterIdx]] = outputEl.value.trim();
+  }
+  currentMeterIdx = idx;
+  const name = meterNames[idx];
+
+  document.getElementById('meter-name-display').textContent = name;
+  document.getElementById('meter-counter').textContent = `${idx+1}/${meterNames.length}`;
+
+  meterNames.forEach((_, i) => {
+    const dot = document.getElementById(`dot-${i}`);
+    if (!dot) return;
+    const hasVal = currentSession && currentSession.readings[meterNames[i]];
+    dot.className = 'meter-dot' + (i===idx?' active':'') + (hasVal?' has-value':'');
+  });
+
+  const savedVal = currentSession ? (currentSession.readings[name] || '') : '';
+  outputEl.value = savedVal;
+  delete outputEl.dataset.manualEdit;
+
+  lockedBox = null;
+  boxes = [];
+  paused = false;
+  ctxOv.clearRect(0, 0, overlay.width, overlay.height);
+  clearDigitStrip();
+  statusEl.textContent = 'Scanning...';
+  hintEl.textContent   = 'Tap a bounding box or digit pill to lock a value';
+  document.getElementById('btn-pause').textContent = '⏸ Pause';
+  document.body.classList.add('scanning');
+}
+
+function finishSession() {
+  if (currentSession && meterNames[currentMeterIdx] !== undefined) {
+    currentSession.readings[meterNames[currentMeterIdx]] = outputEl.value.trim();
+  }
+  if (currentSession) {
+    const idx = sessions.findIndex(s => s.name === currentSession.name);
+    if (idx >= 0) sessions[idx] = currentSession;
+    else sessions.push(currentSession);
+  }
+  currentSession = null;
+  stopCamera();
+  showTable();
+}
+
+// ════════════════════════════════════════════════════════════
+//  PAGE 4 — TABLE
+// ════════════════════════════════════════════════════════════
+function showTable() {
+  stopCamera();
+  buildTable();
+  showPage('pg-table');
+}
+
+function buildTable() {
+  const tbl = document.getElementById('results-table');
+  tbl.innerHTML = '';
+  if (!sessions.length) {
+    tbl.innerHTML = '<tr><td style="color:#336644;padding:20px">No readings yet.</td></tr>';
+    return;
+  }
+  const thead = document.createElement('thead');
+  const hrow  = document.createElement('tr');
+  const thS   = document.createElement('th');
+  thS.textContent = 'SESSION'; thS.className = 'session-col';
+  hrow.appendChild(thS);
+  meterNames.forEach(name => {
+    const th = document.createElement('th');
+    th.textContent = name;
+    hrow.appendChild(th);
+  });
+  thead.appendChild(hrow);
+  tbl.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  sessions.forEach(s => {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.className = 'session-name'; td.textContent = s.name;
+    tr.appendChild(td);
+    meterNames.forEach(name => {
+      const td2 = document.createElement('td');
+      const v = s.readings[name] || '';
+      td2.textContent = v || '—';
+      if (!v) td2.className = 'empty';
+      tr.appendChild(td2);
+    });
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+}
+
+function copyTableCSV() {
+  if (!sessions.length) return;
+  let csv = 'SESSION,' + meterNames.join(',') + '\n';
+  sessions.forEach(s => {
+    csv += s.name + ',' + meterNames.map(n => s.readings[n] || '').join(',') + '\n';
+  });
+  navigator.clipboard.writeText(csv).catch(() => {});
+  const btn = event.target;
+  btn.textContent = '✓ Copied!';
+  setTimeout(() => btn.textContent = '⎘ Copy CSV', 1800);
+}
+
+function clearAllData() {
+  if (!confirm('Clear all sessions and readings?')) return;
+  sessions = [];
+  buildTable();
+}
+
+// ════════════════════════════════════════════════════════════
+//  CAMERA
+// ════════════════════════════════════════════════════════════
+function stopCamera() {
+  if (currentStream) { currentStream.getTracks().forEach(t => t.stop()); currentStream = null; }
+  if (ocrInterval)   { clearInterval(ocrInterval); ocrInterval = null; }
+  document.body.classList.remove('scanning');
+}
+
+async function startCamera(rear = true) {
+  stopCamera();
+  const constraints = {
+    video: { facingMode: rear ? { ideal: 'environment' } : { ideal: 'user' },
+             width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  };
+  try {
+    currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch(e) {
+    try { currentStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); }
+    catch(e2) { statusEl.textContent = 'Camera access denied.'; return; }
+  }
+  video.srcObject = currentStream;
+  torchTrack = null;
+  if (rear) {
+    const vt = currentStream.getVideoTracks()[0];
+    if (vt && typeof vt.getCapabilities === 'function') {
+      const caps = vt.getCapabilities();
+      if (caps.torch) torchTrack = vt;
+    }
+  }
+  await new Promise((res, rej) => {
+    video.onloadedmetadata = async () => { try { await video.play(); res(); } catch(e){ rej(e); } };
+    video.onerror = rej;
+  });
+  await new Promise(r => requestAnimationFrame(r));
+  syncSizes();
+  statusEl.textContent = 'Scanning...';
+  document.body.classList.add('scanning');
+  startOCRLoop();
+}
+
+function syncSizes() {
+  const vw = video.videoWidth || 640, vh = video.videoHeight || 480;
+  const dw = wrapper.offsetWidth;
+  let dh = Math.round(dw * vh / vw);
+  const isPortrait = window.innerHeight > window.innerWidth;
+  const maxH = isPortrait ? Math.floor(window.innerHeight * 0.42) : Math.floor(window.innerHeight * 0.72);
+  if (dh > maxH) dh = maxH;
+  wrapper.style.height = dh + 'px';
+  video.style.height   = dh + 'px';
+  overlay.width  = dw; overlay.height = dh;
+  canvas.width   = vw; canvas.height  = vh;
+}
+
+function switchCamera() {
+  usingRear = !usingRear; torchOn = false;
+  lockedBox = null;
+  document.getElementById('btn-torch').classList.remove('active');
+  startCamera(usingRear);
+}
+
+async function toggleTorch() {
+  if (!torchTrack) { statusEl.textContent = 'Torch not supported.'; return; }
+  torchOn = !torchOn;
+  try {
+    await torchTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+    document.getElementById('btn-torch').classList.toggle('active', torchOn);
+  } catch(e) { statusEl.textContent = 'Could not toggle torch.'; }
+}
+
+function togglePause() {
+  paused = !paused;
+  const btn = document.getElementById('btn-pause');
+  btn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+  if (!paused) {
+    boxes = [];
+    statusEl.textContent = 'Scanning...';
+    hintEl.textContent = 'Tap a bounding box or digit pill to lock a value';
+    document.body.classList.add('scanning');
+  } else {
+    statusEl.textContent = 'Paused.';
+    document.body.classList.remove('scanning');
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  OCR LOOP — YOLO
+// ════════════════════════════════════════════════════════════
+function startOCRLoop() {
+  if (ocrInterval) clearInterval(ocrInterval);
+  ocrInterval = setInterval(readDigits, 1500); // faster than Tesseract — YOLO is quick
+  readDigits();
+}
+
+async function readDigits() {
+  if (processing || paused) return;
+  if (!video.videoWidth || video.readyState < 2) return;
+  if (!ortSession) { statusEl.textContent = 'YOLO model not loaded yet…'; return; }
+
+  processing = true;
+  statusEl.textContent = 'Scanning';
+  document.body.classList.add('scanning');
+
+  try {
+    // Grab current frame into hidden canvas
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+
+    // Run YOLO on the frame
+    const detections = await runYolo(canvas);
+
+    syncSizes();
+    boxes = detections;
+
+    // Scale detections from video coords → overlay display coords
+    const sx = overlay.width  / canvas.width;
+    const sy = overlay.height / canvas.height;
+    const scaledBoxes = boxes.map(b => ({
+      ...b,
+      // display coords (for drawing and hit-testing)
+      dx1: b.x1 * sx, dy1: b.y1 * sy,
+      dx2: b.x2 * sx, dy2: b.y2 * sy
+    }));
+    boxes = scaledBoxes;
+
+    // Full detected string (left-to-right)
+    const fullString = boxes.map(b => b.text).join('');
+
+    // Try to re-lock on the same text value if we had a lock
+    if (lockedBox) {
+      const match = boxes.find(b => b.text === lockedBox.text);
+      if (match) {
+        lockedBox = match;
+        if (!outputEl.dataset.manualEdit) outputEl.value = match.text;
+        if (currentSession) currentSession.readings[meterNames[currentMeterIdx]] = outputEl.value.trim();
+        const dot = document.getElementById(`dot-${currentMeterIdx}`);
+        if (dot && outputEl.value.trim()) dot.classList.add('has-value');
+        statusEl.textContent = boxes.length
+          ? `${boxes.length} digit${boxes.length>1?'s':''} — locked on "${lockedBox.text}"`
+          : 'Display lost — holding last value';
+      } else {
+        statusEl.textContent = 'Display lost — holding last value';
+      }
+    } else {
+      if (fullString) {
+        statusEl.textContent = `${boxes.length} digit${boxes.length>1?'s':''} — "${fullString}" — tap to select`;
+      } else {
+        statusEl.textContent = 'No digits detected';
+      }
+      hintEl.textContent = boxes.length
+        ? 'Tap a highlighted box or digit pill to lock a value'
+        : 'Point camera at a digital display';
+    }
+
+    redrawBoxes();
+    renderDigitStrip(boxes, fullString);
+    document.body.classList.remove('scanning');
+
+  } catch(e) {
+    statusEl.textContent = 'YOLO error. Retrying...';
+    console.error(e);
+  }
+  processing = false;
+}
+
+// ════════════════════════════════════════════════════════════
+//  DRAW BOXES ON OVERLAY
+// ════════════════════════════════════════════════════════════
+function redrawBoxes() {
+  ctxOv.clearRect(0, 0, overlay.width, overlay.height);
+  boxes.forEach(box => {
+    const isLocked = box === lockedBox;
+    const color    = isLocked ? '#ffff00' : (BOX_COLORS[box.classIdx % BOX_COLORS.length] || '#00ff88');
+    const bw = box.dx2 - box.dx1, bh = box.dy2 - box.dy1;
+
+    ctxOv.strokeStyle = color;
+    ctxOv.lineWidth   = isLocked ? 3 : 2;
+    ctxOv.strokeRect(box.dx1, box.dy1, bw, bh);
+
+    // Label: digit + confidence
+    const label = `${box.text} ${(box.score*100).toFixed(0)}%`;
+    ctxOv.font  = 'bold 13px Courier New';
+    const tw = ctxOv.measureText(label).width;
+    const lx = box.dx1;
+    const ly = box.dy1 > 18 ? box.dy1 - 18 : box.dy2 + 2;
+    ctxOv.fillStyle = color;
+    ctxOv.fillRect(lx, ly, tw + 6, 16);
+    ctxOv.fillStyle = '#000';
+    ctxOv.fillText(label, lx + 3, ly + 13);
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+//  DIGIT STRIP (new YOLO feature — shows each detected digit)
+// ════════════════════════════════════════════════════════════
+function clearDigitStrip() {
+  stripEl.innerHTML = '<span id="digit-strip-label">DETECTED:</span>';
+}
+
+function renderDigitStrip(detections, fullString) {
+  stripEl.innerHTML = '<span id="digit-strip-label">DETECTED:</span>';
+
+  if (!detections.length) {
+    const none = document.createElement('span');
+    none.style.cssText = 'font-size:0.7rem;color:#335533;margin-left:6px;';
+    none.textContent = 'none';
+    stripEl.appendChild(none);
+    return;
+  }
+
+  // Full number pill (tap to lock entire reading)
+  if (fullString.length > 1) {
+    const full = document.createElement('div');
+    full.className = 'digit-pill';
+    if (lockedBox === 'FULL') full.classList.add('locked');
+    full.style.borderColor = '#00cc66';
+    full.innerHTML = `<div class="dp-val" style="color:#00ff88;font-size:0.9rem;">${fullString}</div><div class="dp-conf">all</div>`;
+    full.onclick = () => lockFullReading(fullString, full);
+    stripEl.appendChild(full);
+  }
+
+  // Individual digit pills
+  detections.forEach((box, i) => {
+    const color = BOX_COLORS[box.classIdx % BOX_COLORS.length];
+    const pill  = document.createElement('div');
+    pill.className = 'digit-pill';
+    if (lockedBox === box) pill.classList.add('locked');
+    pill.style.borderColor = color;
+    pill.innerHTML = `<div class="dp-val" style="color:${color}">${box.text}</div><div class="dp-conf">${(box.score*100).toFixed(0)}%</div>`;
+    pill.onclick = () => lockBox(box);
+    stripEl.appendChild(pill);
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+//  LOCKING
+// ════════════════════════════════════════════════════════════
+function lockBox(box) {
+  lockedBox = box;
+  outputEl.value = box.text;
+  delete outputEl.dataset.manualEdit;
+  saveCurrentReading(box.text);
+  pauseAfterLock(`Locked digit "${box.text}"`);
+  redrawBoxes();
+  renderDigitStrip(boxes, boxes.map(b=>b.text).join(''));
+}
+
+function lockFullReading(str, pillEl) {
+  lockedBox = 'FULL';
+  outputEl.value = str;
+  delete outputEl.dataset.manualEdit;
+  saveCurrentReading(str);
+  pauseAfterLock(`Locked full reading "${str}"`);
+  // Highlight all boxes in yellow
+  ctxOv.clearRect(0, 0, overlay.width, overlay.height);
+  boxes.forEach(box => {
+    const bw = box.dx2 - box.dx1, bh = box.dy2 - box.dy1;
+    ctxOv.strokeStyle = '#ffff00'; ctxOv.lineWidth = 3;
+    ctxOv.strokeRect(box.dx1, box.dy1, bw, bh);
+  });
+  renderDigitStrip(boxes, str);
+}
+
+function pauseAfterLock(msg) {
+  if (!paused) {
+    paused = true;
+    document.getElementById('btn-pause').textContent = '▶ Resume';
+    document.body.classList.remove('scanning');
+  }
+  statusEl.textContent = msg + ' ✓ — tap ▶ Resume to scan again';
+  hintEl.textContent   = 'Paused — value locked';
+}
+
+function saveCurrentReading(val) {
+  if (currentSession) currentSession.readings[meterNames[currentMeterIdx]] = val;
+  const dot = document.getElementById(`dot-${currentMeterIdx}`);
+  if (dot && val) dot.classList.add('has-value');
+}
+
+// ════════════════════════════════════════════════════════════
+//  TAP SELECTION — tap on overlay canvas to hit-test boxes
+// ════════════════════════════════════════════════════════════
+function handleTap(cx, cy) {
+  const rect = overlay.getBoundingClientRect();
+  const x = cx - rect.left, y = cy - rect.top;
+
+  for (const box of boxes) {
+    if (x >= box.dx1 && x <= box.dx2 && y >= box.dy1 && y <= box.dy2) {
+      lockBox(box);
+      return;
+    }
+  }
+}
+
+overlay.addEventListener('click', e => handleTap(e.clientX, e.clientY));
+overlay.addEventListener('touchend', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  handleTap(t.clientX, t.clientY);
+}, { passive: false });
+
+// ════════════════════════════════════════════════════════════
+//  OUTPUT FIELD LISTENERS
+// ════════════════════════════════════════════════════════════
+outputEl.addEventListener('input', () => {
+  outputEl.dataset.manualEdit = '1';
+  hintEl.textContent = 'Manually edited';
+  if (currentSession) currentSession.readings[meterNames[currentMeterIdx]] = outputEl.value.trim();
+});
+outputEl.addEventListener('change', () => {
+  if (!outputEl.value.trim()) {
+    delete outputEl.dataset.manualEdit;
+    lockedBox = null;
+    hintEl.textContent = 'Tap a bounding box or digit pill to lock a value';
+  }
+  if (currentSession) currentSession.readings[meterNames[currentMeterIdx]] = outputEl.value.trim();
+  const dot = document.getElementById(`dot-${currentMeterIdx}`);
+  if (dot) dot.classList.toggle('has-value', !!outputEl.value.trim());
+});
+
+// ════════════════════════════════════════════════════════════
+//  COPY VALUE
+// ════════════════════════════════════════════════════════════
+function copyValue() {
+  const val = outputEl.value.trim();
+  if (!val) return;
+  navigator.clipboard.writeText(val).then(() => {
+    const btn = document.getElementById('copy-btn');
+    btn.textContent = '✓';
+    setTimeout(() => btn.textContent = '⎘ Copy', 1500);
+  }).catch(() => { outputEl.select(); document.execCommand('copy'); });
+}
+
+// ════════════════════════════════════════════════════════════
+//  RESIZE / ORIENTATION
+// ════════════════════════════════════════════════════════════
+function onLayoutChange() {
+  setTimeout(() => { syncSizes(); redrawBoxes(); }, 120);
+}
+window.addEventListener('resize', onLayoutChange);
+window.addEventListener('orientationchange', onLayoutChange);
+
+// ════════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════════
+buildSetupPage();
 </script>
 </body>
 </html>
